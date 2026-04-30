@@ -103,7 +103,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 }
 
 func SendMessage(peerIP string, peerPort int, message []byte) error {
-	addr := fmt.Sprintf("%s:%d", peerIP, peerPort)
+	addr := net.JoinHostPort(peerIP, fmt.Sprintf("%d", peerPort))
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to connect to %s: %w", addr, err)

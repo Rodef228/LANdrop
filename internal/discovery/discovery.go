@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -12,6 +13,9 @@ import (
 const (
 	DiscoveryPort = 9999
 	DiscoveryMsg  = "CU-BRIDGE-HELLO"
+	// Выделяем специальный IP для нашей группы.
+	// 239.x.x.x - это стандартный диапазон для локального Multicast
+	MulticastIPv4 = "239.0.0.99"
 )
 
 type Peer struct {
@@ -33,34 +37,29 @@ func NewDiscoveryService(name string, port int) *DiscoveryService {
 	}
 }
 
-// Start запускает и вещание, и прослушивание
 func (s *DiscoveryService) Start(ctx context.Context, peerChan chan<- Peer) {
-	// 1. Запускаем слушателя (кто в сети?)
 	go s.listen(ctx, peerChan)
-
-	// 2. Запускаем вещателя (я тут!)
 	go s.broadcast(ctx)
 
-	log.Printf("[Discovery] Service started for %s", s.Name)
+	log.Printf("[Discovery] Service started for %s (Broadcasting port: %d)", s.Name, s.Port)
 	<-ctx.Done()
 }
 
 func (s *DiscoveryService) broadcast(ctx context.Context) {
-	// Подключаемся к адресу вещания
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("255.255.255.255:%d", DiscoveryPort))
+	// Теперь стучимся на Multicast-адрес
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", MulticastIPv4, DiscoveryPort))
 	if err != nil {
-		log.Printf("[Broadcast Error] %v", err)
+		log.Printf("[Broadcast Error] Failed to resolve address: %v", err)
 		return
 	}
 
 	conn, err := net.DialUDP("udp", nil, addr)
 	if err != nil {
-		log.Printf("[Broadcast Error] %v", err)
+		log.Printf("[Broadcast Error] Failed to dial: %v", err)
 		return
 	}
 	defer conn.Close()
 
-	// Формируем сообщение: ТИП:ИМЯ:ПОРТ
 	msg := fmt.Sprintf("%s:%s:%d", DiscoveryMsg, s.Name, s.Port)
 
 	ticker := time.NewTicker(2 * time.Second)
@@ -80,13 +79,15 @@ func (s *DiscoveryService) broadcast(ctx context.Context) {
 }
 
 func (s *DiscoveryService) listen(ctx context.Context, peerChan chan<- Peer) {
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", DiscoveryPort))
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", MulticastIPv4, DiscoveryPort))
 	if err != nil {
 		log.Printf("[Listen Error] %v", err)
 		return
 	}
 
-	conn, err := net.ListenUDP("udp", addr)
+	// ВАЖНО: Используем ListenMulticastUDP вместо ListenUDP!
+	// Это говорит Windows: "Разреши нескольким моим терминалам слушать этот порт"
+	conn, err := net.ListenMulticastUDP("udp", nil, addr)
 	if err != nil {
 		log.Printf("[Listen Error] %v", err)
 		return
@@ -99,7 +100,6 @@ func (s *DiscoveryService) listen(ctx context.Context, peerChan chan<- Peer) {
 		case <-ctx.Done():
 			return
 		default:
-			// Устанавливаем таймаут, чтобы не блокироваться вечно и проверять ctx.Done
 			conn.SetReadDeadline(time.Now().Add(time.Second))
 			n, remoteAddr, err := conn.ReadFromUDP(buf)
 			if err != nil {
@@ -109,18 +109,23 @@ func (s *DiscoveryService) listen(ctx context.Context, peerChan chan<- Peer) {
 			data := string(buf[:n])
 			parts := strings.Split(data, ":")
 
-			// Проверяем, наше ли это сообщение
 			if len(parts) == 3 && parts[0] == DiscoveryMsg {
 				peerName := parts[1]
-				// Не добавляем самих себя
+
 				if peerName == s.Name {
+					continue
+				}
+
+				peerPort, parseErr := strconv.Atoi(parts[2])
+				if parseErr != nil {
+					log.Printf("[Discovery Error] Invalid port from %s: %v", peerName, parseErr)
 					continue
 				}
 
 				peerChan <- Peer{
 					ID:   peerName,
-					IP:   remoteAddr.IP.String(),
-					Port: s.Port, // В будущем будем парсить порт из сообщения
+					IP:   remoteAddr.IP.String(), // IP адрес соседа
+					Port: peerPort,               // TCP порт соседа для передачи файлов
 					Name: peerName,
 				}
 			}

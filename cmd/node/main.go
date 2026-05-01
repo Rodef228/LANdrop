@@ -18,9 +18,12 @@ import (
 )
 
 func main() {
+
 	name := flag.String("name", fmt.Sprintf("node-%d", os.Getpid()), "Name of the node")
 	port := flag.Int("port", 8080, "TCP port to listen on")
 	flag.Parse()
+
+	enableAnsiSupport()
 
 	// Welcome Message
 	fmt.Printf("Welcome to Mesh-CU Messenger, %s!\n", *name)
@@ -28,7 +31,7 @@ func main() {
 	fmt.Println("Type your message and press Enter to send.")
 	fmt.Println("-----------------------------------------")
 
-	log.Printf("Starting node %s on port %d...", *name, *port)
+	fmt.Printf("Starting node %s on port %d...\n", *name, *port)
 
 	// Handler для входящих сообщений
 	handleIncomingMessage := func(conn net.Conn, senderID string, name string, messageType protocol.MessageType, payload map[string]interface{}) error {
@@ -39,7 +42,7 @@ func main() {
 				log.Printf("[Handler Error] Invalid chat message format from %s", senderID)
 				return fmt.Errorf("invalid chat message format")
 			}
-			fmt.Printf("\r%s: %s\n> ", name, message)
+			fmt.Printf("\r%s: %s\nyou:  ", name, message)
 		case protocol.TypePing:
 			// Можно обработать пинг, если нужно, но для мессенджера пока игнорируем
 		case protocol.TypePong:
@@ -71,6 +74,8 @@ func main() {
 		}
 	}()
 
+	time.Sleep(1 * time.Second)
+
 	// Слушаем найденных соседей и обновляем реестр с уведомлением
 	go func() {
 		knownPeers := make(map[string]string) // Track known peers to announce new ones
@@ -84,7 +89,7 @@ func main() {
 				}
 				// Анонс нового пира
 				if _, exists := knownPeers[peer.ID]; !exists {
-					fmt.Printf("\r[SYSTEM]: New peer joined: %s (%s:%d)\n> ", peer.Name, peer.IP, peer.Port)
+					fmt.Printf("\r[SYSTEM]: New peer joined: %s (%s:%d)\nyou: ", peer.Name, peer.IP, peer.Port)
 					knownPeers[peer.ID] = peer.Name
 				}
 				registry.Update(peer)
@@ -99,7 +104,7 @@ func main() {
 
 				for id, name := range knownPeers {
 					if !activeMap[id] {
-						fmt.Printf("\r[SYSTEM]: %s has left the network\n> ", name)
+						fmt.Printf("\r[SYSTEM]: %s has left the network\nyou:  ", name)
 						delete(knownPeers, id)
 					}
 				}
@@ -133,15 +138,15 @@ func main() {
 	// Цикл чтения из консоли и рассылки сообщений
 	go func() {
 		scanner := bufio.NewScanner(os.Stdin)
-		fmt.Print("> ")
+		fmt.Print("you: ")
 		for scanner.Scan() {
 			line := scanner.Text()
 			if len(line) == 0 {
-				fmt.Print("> ")
+				fmt.Print("you: ")
 				continue
 			}
 
-			fmt.Printf("%s: %s\n", *name, line)
+			// fmt.Printf("you: %s\n", line)
 			// Упаковываем сообщение
 			header := protocol.Header{
 				MessageType: protocol.TypeChat,
@@ -155,7 +160,7 @@ func main() {
 			encodedMsg, err := protocol.Encode(header, chatPayload)
 			if err != nil {
 				log.Printf("[Encoder Error] Failed to encode message: %v", err)
-				fmt.Print("> ")
+				fmt.Print("you: ")
 				continue
 			}
 
@@ -173,7 +178,7 @@ func main() {
 					log.Printf("[Network Error] Failed to send message to %s (%s:%d): %v", peer.Name, peer.IP, peer.Port, err)
 				}
 			}
-			fmt.Print("> ")
+			fmt.Print("you: ")
 		}
 		if err := scanner.Err(); err != nil {
 			log.Printf("[UI Error] Reading standard input: %v", err)

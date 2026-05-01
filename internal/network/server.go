@@ -6,9 +6,11 @@ import (
 	"log"
 	"net"
 	"time"
+
+	"mesh-cu/internal/protocol"
 )
 
-type MessageHandler func(conn net.Conn, senderID string, messageType string, payload map[string]interface{}) error
+type MessageHandler func(conn net.Conn, senderID string, messageType protocol.MessageType, payload map[string]interface{}) error
 
 type Server struct {
 	Port     int
@@ -89,10 +91,14 @@ func (s *Server) handleConnection(conn net.Conn) {
 		}
 
 		if n > 0 {
+			header, payload, err := protocol.Decode(buf[:n])
+			if err != nil {
+				log.Printf("[Network Error] Failed to decode message from %s: %v. Closing connection.", remoteAddr, err)
+				break // Close connection on decoding error
+			}
+
 			if s.Handler != nil {
-				// В будущем здесь будет вызов protocol.Decode
-				payload := map[string]interface{}{"data": string(buf[:n])}
-				err = s.Handler(conn, remoteAddr, "RAW_MESSAGE", payload)
+				err = s.Handler(conn, remoteAddr, header.MessageType, payload)
 				if err != nil {
 					log.Printf("[Network Error] Handler failed for %s: %v", remoteAddr, err)
 				}

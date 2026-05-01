@@ -8,16 +8,20 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"mesh-cu/internal/discovery"
 )
 
 func main() {
-	name := flag.String("name", fmt.Sprintf("node-%d", os.Getpid()), "Name of the node") // Делаем имя уникальным по PID
-	port := flag.Int("port", 8080, "TCP port to listen on")                              // Этот порт пока не используется, но нужен для анонса
+	name := flag.String("name", fmt.Sprintf("node-%d", os.Getpid()), "Name of the node")
+	port := flag.Int("port", 8080, "TCP port to listen on")
 	flag.Parse()
 
 	log.Printf("Starting node %s on port %d...", *name, *port)
+
+	// Инициализируем реестр пиров
+	registry := discovery.NewPeerRegistry()
 
 	// Создаем сервис обнаружения
 	discService := discovery.NewDiscoveryService(*name, *port)
@@ -29,13 +33,30 @@ func main() {
 	// Запускаем сервис обнаружения (вещание + прослушивание) в фоне
 	go discService.Start(ctx, peerChan)
 
-	// Слушаем найденных соседей
+	// Слушаем найденных соседей и обновляем реестр
 	go func() {
-		knownPeers := make(map[string]bool)
 		for peer := range peerChan {
-			if !knownPeers[peer.ID] {
-				fmt.Printf("[Discovery] Found new peer: %s at %s:%d", peer.Name, peer.IP, peer.Port)
-				knownPeers[peer.ID] = true
+			registry.Update(peer)
+		}
+	}()
+
+	// Периодически выводим список активных узлов для наглядности
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				active := registry.GetActivePeers()
+				if len(active) > 0 {
+					fmt.Printf("\n--- Active Peers (%d) ---\n", len(active))
+					for _, p := range active {
+						fmt.Printf("- %s (%s:%d)\n", p.Name, p.IP, p.Port)
+					}
+					fmt.Println("------------------------")
+				}
 			}
 		}
 	}()
@@ -46,5 +67,5 @@ func main() {
 	<-sig
 
 	log.Println("Shutting down...")
-	cancel() // Отменяем контекст, чтобы остановить горутины
+	cancel()
 }

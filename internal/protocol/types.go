@@ -14,6 +14,7 @@ const (
 	TypeFileRequest MessageType = "FILE_REQ"
 	TypeFileChunk   MessageType = "FILE_CHUNK"
 	TypeFileAck     MessageType = "FILE_ACK"
+	TypeGroupCreate MessageType = "GROUP_CREATE"
 )
 
 type Header struct {

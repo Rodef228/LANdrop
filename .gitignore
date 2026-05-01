@@ -4,6 +4,9 @@
 *.so
 *.dylib
 
+*.mod
+*.sum
+
 # Test binary, built with `go test -c`
 *.test
 
@@ -28,3 +31,10 @@ vendor/
 
 # Windows specific files
 thumbs.db
+
+# исполняемые файлы
+cu-bridge
+cu-bridge.exe
+cu-bridge-linux
+cu-bridge-mac
+builds/

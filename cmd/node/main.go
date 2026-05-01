@@ -141,13 +141,17 @@ func main() {
 				continue
 			}
 
+			fmt.Printf("%s: %s\n", *name, line)
 			// Упаковываем сообщение
 			header := protocol.Header{
 				MessageType: protocol.TypeChat,
 				SenderID:    *name,
 				RecipientID: "", // Для широковещания, можно оставить пустым или "ALL"
 			}
-			chatPayload := protocol.ChatMessage{Message: line}
+			chatPayload := map[string]interface{}{
+				"message":     line,
+				"sender_name": *name,
+			}
 			encodedMsg, err := protocol.Encode(header, chatPayload)
 			if err != nil {
 				log.Printf("[Encoder Error] Failed to encode message: %v", err)

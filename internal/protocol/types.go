@@ -19,12 +19,17 @@ const (
 type Header struct {
 	MessageType MessageType `json:"type"`
 	SenderID    string      `json:"sender_id"`
+	SenderName  string      `json:"sender_name"`
 	RecipientID string      `json:"recipient_id"`
 }
 
 type PingMessage struct {
 	Header
 	Timestamp int64 `json:"timestamp"`
+}
+
+type ChatMessage struct {
+	Message string `json:"message"`
 }
 
 func Encode(header Header, payload interface{}) ([]byte, error) {

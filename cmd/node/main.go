@@ -32,7 +32,7 @@ func main() {
 	port := flag.Int("port", 8080, "TCP port to listen on")
 	flag.Parse()
 
-	enableAnsiSupport()
+	// enableAnsiSupport()
 
 	db.InitDB(*name)
 

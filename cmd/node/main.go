@@ -23,8 +23,6 @@ func main() {
 	port := flag.Int("port", 8080, "TCP port to listen on")
 	flag.Parse()
 
-	enableAnsiSupport()
-
 	// Welcome Message
 	fmt.Printf("Welcome to Mesh-CU Messenger, %s!\n", *name)
 	fmt.Println("Listening for peers and messages...")

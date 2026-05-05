@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-const ChunkSize = 1024 * 1024 // 1 MB
+const ChunkSize = 64 * 1024 // 64 KB
 
 type FileManager struct {
 	StoragePath string

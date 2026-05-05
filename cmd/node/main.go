@@ -349,6 +349,7 @@ func main() {
 					}
 					fmt.Printf("\r[CDN]: Requested all %d chunks from network\nyou: ", fi.TotalChunks)
 				}
+
 				fmt.Print("you: ")
 				continue
 			}

@@ -42,7 +42,6 @@ func main() {
 
 	// Handler для входящих сообщений
 	handleIncomingMessage := func(conn net.Conn, senderID string, name string, messageType protocol.MessageType, payload map[string]interface{}) error {
-		fmt.Printf("\r[NET DEBUG]: Incoming message type: '%s' from %s\nyou: ", messageType, name)
 		switch messageType {
 		case protocol.TypeChat:
 			message, ok := payload["message"].(string)

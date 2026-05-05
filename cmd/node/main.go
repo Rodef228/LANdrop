@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
@@ -94,7 +95,12 @@ func main() {
 
 			fi, ok := cdnMgr.Files[fileID]
 			if ok {
-				data, _ := fm.ReadChunk(fi.Name, uint32(idx))
+				var data []byte
+				if fi.OriginalPath != "" {
+					data, _ = fm.ReadChunkFromPath(fi.OriginalPath, uint32(idx))
+				} else {
+					data, _ = fm.ReadChunk(fi.Name, uint32(idx))
+				}
 				header := protocol.Header{MessageType: protocol.TypeFileChunk, SenderID: senderID, SenderName: name}
 				respPayload := map[string]interface{}{
 					"file_id":     fileID,
@@ -115,7 +121,13 @@ func main() {
 			// Нам прилетел кусок файла
 			fileID, _ := payload["file_id"].(string)
 			idx, _ := payload["chunk_index"].(float64)
-			data, _ := payload["data"].([]byte)
+			
+			var data []byte
+			if strData, ok := payload["data"].(string); ok {
+				data, _ = base64.StdEncoding.DecodeString(strData)
+			} else if byteData, ok := payload["data"].([]byte); ok {
+				data = byteData
+			}
 
 			fi, ok := cdnMgr.Files[fileID]
 			if ok {
@@ -236,8 +248,13 @@ func main() {
 			}
 			if strings.HasPrefix(line, "/") {
 				parts := strings.Fields(line)
-				if parts[0] == "/announce" && len(parts) > 1 {
-					path, fID := parts[1], parts[2]
+				if parts[0] == "/announce" {
+					if len(parts) < 2 {
+						fmt.Printf("\r[ERROR]: Usage: /announce <path> [optional_id]\nyou: ")
+						continue
+					}
+					path := parts[1]
+					var fID string
 					if len(parts) > 2 {
 						fID = parts[2]
 					} else {
@@ -251,7 +268,7 @@ func main() {
 					}
 
 					// 1. Регистрируем файл в локальном менеджере (чтобы мы знали, что раздаем)
-					fi := cdnMgr.RegisterLocalFile(fID, info.Name(), info.Size())
+					fi := cdnMgr.RegisterLocalFile(fID, info.Name(), info.Size(), path)
 
 					// 2. Создаем заголовок сообщения
 					header := protocol.Header{

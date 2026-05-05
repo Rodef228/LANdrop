@@ -7,11 +7,12 @@ import (
 )
 
 type FileInfo struct {
-	ID          string
-	Name        string
-	Size        int64
-	TotalChunks uint32
-	OwnedChunks map[uint32]bool
+	ID           string
+	Name         string
+	OriginalPath string
+	Size         int64
+	TotalChunks  uint32
+	OwnedChunks  map[uint32]bool
 }
 
 type CDNManager struct {
@@ -75,7 +76,7 @@ func (cm *CDNManager) GetChunkOwners(fileID string, chunkIndex uint32) []string 
 	return owners
 }
 
-func (cm *CDNManager) RegisterLocalFile(fileID, name string, size int64) *FileInfo {
+func (cm *CDNManager) RegisterLocalFile(fileID, name string, size int64, originalPath string) *FileInfo {
 	totalChunks := uint32((size + ChunkSize - 1) / ChunkSize)
 	owned := make(map[uint32]bool)
 	for i := uint32(0); i < totalChunks; i++ {
@@ -83,11 +84,12 @@ func (cm *CDNManager) RegisterLocalFile(fileID, name string, size int64) *FileIn
 	}
 
 	fi := &FileInfo{
-		ID:          fileID,
-		Name:        name,
-		Size:        size,
-		TotalChunks: totalChunks,
-		OwnedChunks: owned,
+		ID:           fileID,
+		Name:         name,
+		OriginalPath: originalPath,
+		Size:         size,
+		TotalChunks:  totalChunks,
+		OwnedChunks:  owned,
 	}
 
 	cm.mu.Lock()

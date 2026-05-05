@@ -23,8 +23,7 @@ func NewFileManager(storagePath string) (*FileManager, error) {
 	return &FileManager{StoragePath: absPath}, nil
 }
 
-func (fm *FileManager) ReadChunk(fileName string, index uint32) ([]byte, error) {
-	path := filepath.Join(fm.StoragePath, fileName)
+func (fm *FileManager) ReadChunkFromPath(path string, index uint32) ([]byte, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
@@ -38,6 +37,11 @@ func (fm *FileManager) ReadChunk(fileName string, index uint32) ([]byte, error) 
 		return nil, fmt.Errorf("failed to read chunk: %w", err)
 	}
 	return data[:n], nil
+}
+
+func (fm *FileManager) ReadChunk(fileName string, index uint32) ([]byte, error) {
+	path := filepath.Join(fm.StoragePath, fileName)
+	return fm.ReadChunkFromPath(path, index)
 }
 
 func (fm *FileManager) WriteChunk(fileName string, index uint32, data []byte) error {

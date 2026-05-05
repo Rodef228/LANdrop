@@ -121,7 +121,7 @@ func main() {
 			// Нам прилетел кусок файла
 			fileID, _ := payload["file_id"].(string)
 			idx, _ := payload["chunk_index"].(float64)
-			
+
 			var data []byte
 			if strData, ok := payload["data"].(string); ok {
 				data, _ = base64.StdEncoding.DecodeString(strData)
@@ -307,7 +307,6 @@ func main() {
 				if parts[0] == "/download" && len(parts) > 1 {
 					fileID := parts[1]
 
-					// 1. Проверяем, знаем ли мы вообще про такой файл
 					cdnMgr.RLock()
 					fi, exists := cdnMgr.Files[fileID]
 					cdnMgr.RUnlock()
@@ -316,32 +315,39 @@ func main() {
 						fmt.Printf("\r[ERROR]: File ID %s unknown. Wait for announce.\nyou: ", fileID)
 						continue
 					}
+					fmt.Printf("\r[SYSTEM]: Starting download for %s (%d chunks)...\nyou: ", fi.Name, fi.TotalChunks)
 
-					fmt.Printf("\r[SYSTEM]: Starting download for %s...\nyou: ", fi.Name)
-
-					// 2. Формируем запрос на первый чанк (0)
-					header := protocol.Header{
-						MessageType: protocol.TypeFileRequest,
-						SenderID:    *name,
-						SenderName:  *name,
-					}
-
-					payload := map[string]interface{}{
-						"file_id":     fileID,
-						"chunk_index": float64(0),
-					}
-
-					encoded, _ := protocol.Encode(header, payload)
-
-					// 3. Отправляем запрос ВСЕМ активным пирам.
-					// Тот, у кого есть файл, ответит чанком. Это проще и надежнее для теста.
 					activePeers := registry.GetActivePeers()
-					for _, peer := range activePeers {
-						if peer.ID != *name {
-							network.SendMessage(peer.IP, peer.Port, encoded)
+					if len(activePeers) == 0 {
+						fmt.Printf("\r[ERROR]: No active peers to request chunks from.\nyou: ")
+						continue
+					}
+
+					for chunkIdx := uint32(0); chunkIdx < fi.TotalChunks; chunkIdx++ {
+						header := protocol.Header{
+							MessageType: protocol.TypeFileRequest,
+							SenderID:    *name,
+							SenderName:  *name,
+						}
+
+						payload := map[string]interface{}{
+							"file_id":     fileID,
+							"chunk_index": float64(chunkIdx),
+						}
+
+						encoded, err := protocol.Encode(header, payload)
+						if err != nil {
+							fmt.Printf("\r[ERROR]: Failed to encode chunk %d request: %v\nyou: ", chunkIdx, err)
+							continue
+						}
+
+						for _, peer := range activePeers {
+							if peer.ID != *name {
+								network.SendMessage(peer.IP, peer.Port, encoded)
+							}
 						}
 					}
-					fmt.Printf("\r[CDN]: Requested chunk 0 from network\nyou: ")
+					fmt.Printf("\r[CDN]: Requested all %d chunks from network\nyou: ", fi.TotalChunks)
 				}
 				fmt.Print("you: ")
 				continue

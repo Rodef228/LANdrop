@@ -72,6 +72,13 @@ func main() {
 				p.FileSize = int64(size)
 			}
 
+			var totalChunks uint32
+			if tc, ok := payload["total_chunks"].(float64); ok {
+				totalChunks = uint32(tc)
+			} else {
+				totalChunks = uint32((p.FileSize + cdn.ChunkSize - 1) / cdn.ChunkSize)
+			}
+
 			// 3. ПЕРЕДАЕМ В МЕНЕДЖЕР (теперь fID используется внутри, ошибка уйдет)[cite: 2]
 			cdnMgr.HandleAnnounce(p, senderID)
 
@@ -81,7 +88,7 @@ func main() {
 					ID:          fID,
 					Name:        fName,
 					Size:        p.FileSize,
-					TotalChunks: uint32((p.FileSize + 1023) / 1024), // Рассчитываем чанки (допустим, по 1КБ)
+					TotalChunks: totalChunks,
 					OwnedChunks: make(map[uint32]bool),
 				}
 			}
@@ -89,29 +96,46 @@ func main() {
 
 			fmt.Printf("\r[CDN]: Peer %s has file: %s (ID: %s)\nyou:  ", name, fName, fID)
 		case protocol.TypeFileRequest:
-			// У нас просят чанк
 			fileID, _ := payload["file_id"].(string)
-			idx, _ := payload["chunk_index"].(float64) // JSON числа в Go — это float64
+			idx, _ := payload["chunk_index"].(float64)
 
 			fi, ok := cdnMgr.Files[fileID]
 			if ok {
 				var data []byte
+				var err error
 				if fi.OriginalPath != "" {
-					data, _ = fm.ReadChunkFromPath(fi.OriginalPath, uint32(idx))
+					data, err = fm.ReadChunkFromPath(fi.OriginalPath, uint32(idx))
 				} else {
-					data, _ = fm.ReadChunk(fi.Name, uint32(idx))
+					data, err = fm.ReadChunk(fi.Name, uint32(idx))
 				}
-				header := protocol.Header{MessageType: protocol.TypeFileChunk, SenderID: senderID, SenderName: name}
+
+				if err != nil || len(data) == 0 {
+					log.Printf("[ERROR] Chunk %d not found for file %s", int(idx), fileID)
+					return nil
+				}
+
+				// ВАЖНО: SenderID должен быть ВАШИМ (Kamil)
+				respHeader := protocol.Header{
+					MessageType: protocol.TypeFileChunk,
+					SenderID:    name, // Используйте переменную имени текущего узла
+					SenderName:  name,
+				}
+
 				respPayload := map[string]interface{}{
 					"file_id":     fileID,
 					"chunk_index": idx,
 					"data":        data,
 				}
-				encoded, _ := protocol.Encode(header, respPayload)
-				fmt.Printf("Sending announce to %d peers\n", len(registry.GetActivePeers()))
+
+				encoded, _ := protocol.Encode(respHeader, respPayload)
+
+				// Отправляем конкретно тому, кто просил (senderID)
 				for _, peer := range registry.GetActivePeers() {
 					if peer.ID == senderID {
+						fmt.Printf("\r[DEBUG]: Sending chunk %v to %s at %s:%d\n", idx, peer.ID, peer.IP, peer.Port)
+
 						network.SendMessage(peer.IP, peer.Port, encoded)
+						// log.Printf("[CDN] Sent chunk %d to %s", int(idx), senderID)
 						break
 					}
 				}
@@ -127,6 +151,8 @@ func main() {
 				data, _ = base64.StdEncoding.DecodeString(strData)
 			} else if byteData, ok := payload["data"].([]byte); ok {
 				data = byteData
+			} else {
+				log.Printf("[ERROR] Payload 'data' is missing or not a string! Type is: %T", payload["data"])
 			}
 
 			fi, ok := cdnMgr.Files[fileID]
@@ -281,9 +307,12 @@ func main() {
 					payload := map[string]interface{}{
 						"file_id":      fID,
 						"file_name":    info.Name(),
-						"file_size":    float64(info.Size()),
-						"total_chunks": float64(fi.TotalChunks),
+						"file_size":    info.Size(), // Передаем чистые байты (int64)
+						"total_chunks": fi.TotalChunks,
 					}
+
+					// log.Printf("Size of file %d, and name %s, and total chunks %d", info.Size(), info.Name(), fi.TotalChunks)
+					// log.Printf("Size: %.2f MB", float64(info.Size())/1000000)
 
 					// 4. Кодируем в JSON/байты
 					encoded, err := protocol.Encode(header, payload)

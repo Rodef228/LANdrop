@@ -81,6 +81,7 @@ func main() {
 					Name:        fName,
 					Size:        p.FileSize,
 					TotalChunks: uint32((p.FileSize + 1023) / 1024), // Рассчитываем чанки (допустим, по 1КБ)
+					OwnedChunks: make(map[uint32]bool),
 				}
 			}
 			cdnMgr.Unlock()

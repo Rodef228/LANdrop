@@ -11,7 +11,7 @@ import (
 	"mesh-cu/internal/protocol"
 )
 
-type MessageHandler func(conn net.Conn, senderID string, name string, messageType protocol.MessageType, payload map[string]interface{}) error
+type MessageHandler func(conn net.Conn, header protocol.Header, payload map[string]interface{}) error
 
 type Server struct {
 	Port     int
@@ -86,6 +86,16 @@ func (s *Server) handleConnection(conn net.Conn) {
 			err = s.Handler(conn, header.SenderID, senderName, header.MessageType, payload)
 			if err != nil {
 				log.Printf("[Network Error] Handler failed: %v", err)
+			if s.Handler != nil {
+				senderName, _ := payload["sender_name"].(string)
+				if senderName == "" {
+					senderName = header.SenderID
+				}
+
+				err = s.Handler(conn, header, payload)
+				if err != nil {
+					log.Printf("[Network Error] Handler failed: %v", err)
+				}
 			}
 		}
 	}

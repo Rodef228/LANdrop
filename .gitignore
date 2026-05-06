@@ -1,38 +1,40 @@
-# Binaries for programs and plugins
-*.exe
-*.dll
-*.so
-*.dylib
+```
+# Dependencies
+.pub/
+.dart_tool/
+build/
 
+<<<<<<< HEAD
 *.mod
 *.sum
 *.mp4
+=======
+# Logs and temp files
+*.log
+*.tmp
+>>>>>>> 8d2437f9a63752e9c837ba2e1e5665dd9f78016a
 
-# Test binary, built with `go test -c`
-*.test
+# Environment
+.env
+.env.local
+*.env.*
 
-# Output of the go toolchain
-*.out
-
-# Dependency directories (remove the "vendor/" if you want to commit it)
-vendor/
-
-# Go module cache
-.mod/
-
-# IDE specific files
+# Editors
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# Log files
-*.log
-
-# macOS specific files
+# OS
 .DS_Store
+Thumbs.db
 
-# Windows specific files
-thumbs.db
+# Coverage
+coverage/
+htmlcov/
+.coverage
 
+<<<<<<< HEAD
 # исполняемые файлы
 cu-bridge
 cu-bridge.exe
@@ -40,3 +42,25 @@ cu-bridge-linux
 cu-bridge-mac
 builds/
 storage/
+=======
+# Compressed files
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+```
+>>>>>>> 8d2437f9a63752e9c837ba2e1e5665dd9f78016a

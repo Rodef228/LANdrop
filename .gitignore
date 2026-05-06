@@ -6,6 +6,7 @@
 
 *.mod
 *.sum
+*.mp4
 
 # Test binary, built with `go test -c`
 *.test

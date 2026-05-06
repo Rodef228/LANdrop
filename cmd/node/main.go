@@ -21,10 +21,20 @@ import (
 )
 
 func main() {
-	name := flag.String("name", fmt.Sprintf("node-%d", os.Getpid()), "Name of the node")
+	name := flag.String("name", "", "Name of the node")
 	port := flag.Int("port", 8080, "TCP port to listen on")
 	storageDir := flag.String("storage", "./storage", "Directory to store files")
 	flag.Parse()
+
+	// Генерируем уникальное имя узла, если не указано явно
+	if *name == "" {
+		hostname, err := os.Hostname()
+		if err != nil {
+			*name = fmt.Sprintf("node-%d", os.Getpid())
+		} else {
+			*name = fmt.Sprintf("node-%s-%d", hostname, os.Getpid())
+		}
+	}
 
 	fm, err := cdn.NewFileManager(*storageDir)
 	if err != nil {
@@ -157,17 +167,23 @@ func main() {
 
 			fi, ok := cdnMgr.Files[fileID]
 			if ok {
-				fm.WriteChunk(fi.Name, uint32(idx), data)
-				cdnMgr.Lock()
-				fi.OwnedChunks[uint32(idx)] = true
-				cdnMgr.Unlock()
-				fmt.Printf("\r[CDN]: Received chunk %d for %s\nyou:  ", int(idx), fi.Name)
+				// Используем правильный путь для записи чанка
+				err := fm.WriteChunk(fi.Name, uint32(idx), data)
+				if err != nil {
+					log.Printf("[ERROR] Failed to write chunk %d for file %s: %v", int(idx), fi.Name, err)
+				} else {
+					cdnMgr.Lock()
+					fi.OwnedChunks[uint32(idx)] = true
+					cdnMgr.Unlock()
+					fmt.Printf("\r[CDN]: Received chunk %d for %s\nyou:  ", int(idx), fi.Name)
+				}
 			}
-			// Внутри case protocol.TypeFileChunk в handleIncomingMessage
-			if uint32(idx)+1 < uint32(fi.TotalChunks) {
+
+			// Внутри case protocol.TypeFileChunk в handleIncomingMessage - добавлено отсутствие ошибки при недоступности fi
+			if ok && uint32(idx)+1 < uint32(fi.TotalChunks) {
 				// Формируем такой же запрос (TypeFileRequest), но для idx + 1
 				// И отправляем его обратно senderID
-			} else {
+			} else if ok {
 				fmt.Printf("\n[CDN]: File %s download complete!\nyou: ", fi.Name)
 			}
 		case protocol.TypePing:

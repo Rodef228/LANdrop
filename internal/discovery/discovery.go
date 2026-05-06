@@ -13,9 +13,8 @@ import (
 const (
 	DiscoveryPort = 9999
 	DiscoveryMsg  = "CU-BRIDGE-HELLO"
-	// Выделяем специальный IP для нашей группы.
-	// 239.x.x.x - это стандартный диапазон для локального Multicast
-	MulticastIPv4 = "239.0.0.99"
+	// Для совместимости с Windows используем broadcast адрес
+	BroadcastIPv4 = "255.255.255.255"
 )
 
 type Peer struct {
@@ -46,8 +45,8 @@ func (s *DiscoveryService) Start(ctx context.Context, peerChan chan<- Peer) {
 }
 
 func (s *DiscoveryService) broadcast(ctx context.Context) {
-	// Теперь стучимся на Multicast-адрес
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", MulticastIPv4, DiscoveryPort))
+	// Используем Broadcast вместо Multicast для лучшей совместимости с Windows
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", BroadcastIPv4, DiscoveryPort))
 	if err != nil {
 		log.Printf("[Broadcast Error] Failed to resolve address: %v", err)
 		return
@@ -79,15 +78,14 @@ func (s *DiscoveryService) broadcast(ctx context.Context) {
 }
 
 func (s *DiscoveryService) listen(ctx context.Context, peerChan chan<- Peer) {
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", MulticastIPv4, DiscoveryPort))
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", DiscoveryPort))
 	if err != nil {
 		log.Printf("[Listen Error] %v", err)
 		return
 	}
 
-	// ВАЖНО: Используем ListenMulticastUDP вместо ListenUDP!
-	// Это говорит Windows: "Разреши нескольким моим терминалам слушать этот порт"
-	conn, err := net.ListenMulticastUDP("udp", nil, addr)
+	// Используем обычный UDP слушатель для повышения совместимости с Windows
+	conn, err := net.ListenUDP("udp", addr)
 	if err != nil {
 		log.Printf("[Listen Error] %v", err)
 		return

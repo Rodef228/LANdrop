@@ -17,9 +17,16 @@ func NewFileManager(storagePath string) (*FileManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(absPath, 0755); err != nil {
-		return nil, err
+
+	// Добавляем проверку существования каталога и создание при необходимости
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		if err := os.MkdirAll(absPath, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create storage directory: %w", err)
+		}
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to check storage directory: %w", err)
 	}
+
 	return &FileManager{StoragePath: absPath}, nil
 }
 

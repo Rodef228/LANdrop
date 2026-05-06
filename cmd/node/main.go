@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"mesh-cu/internal/api"
+	"mesh-cu/internal/cdn"
 	"mesh-cu/internal/db"
 	"mesh-cu/internal/discovery"
 	"mesh-cu/internal/network"
@@ -139,8 +140,8 @@ func main() {
 				// ВАЖНО: SenderID должен быть ВАШИМ (Kamil)
 				respHeader := protocol.Header{
 					MessageType: protocol.TypeFileChunk,
-					SenderID:    name, // Используйте переменную имени текущего узла
-					SenderName:  name,
+					SenderID:    *name, // Используйте переменную имени текущего узла
+					SenderName:  *name,
 				}
 
 				respPayload := map[string]interface{}{
@@ -203,7 +204,7 @@ func main() {
 	}
 
 	// // Инициализируем реестр пиров
-	registry := discovery.NewPeerRegistry()
+	registry = discovery.NewPeerRegistry()
 
 	// Создаем сервис обнаружения
 	discService := discovery.NewDiscoveryService(*name, *port)
@@ -649,7 +650,7 @@ func handleCommand(line, myID string, currentChatID *atomic.Value, registry *dis
 
 		// Broadcast group creation to active participant peers
 		header := protocol.Header{
-			MessageType: protocol.TypeGroupCreate,
+			MessageType: protocol.TypeChat,
 			SenderID:    myID,
 			RecipientID: groupID,
 		}

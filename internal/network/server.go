@@ -64,7 +64,7 @@ func (s *Server) Stop() {
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	conn.SetReadDeadline(time.Now().Add(15 * time.Second))
-	
+
 	data, err := io.ReadAll(conn)
 	if err != nil {
 		return
@@ -83,18 +83,20 @@ func (s *Server) handleConnection(conn net.Conn) {
 				senderName = header.SenderID
 			}
 
-			err = s.Handler(conn, header.SenderID, senderName, header.MessageType, payload)
+			err = s.Handler(conn, header, payload)
+
 			if err != nil {
 				log.Printf("[Network Error] Handler failed: %v", err)
-			if s.Handler != nil {
-				senderName, _ := payload["sender_name"].(string)
-				if senderName == "" {
-					senderName = header.SenderID
-				}
+				if s.Handler != nil {
+					senderName, _ := payload["sender_name"].(string)
+					if senderName == "" {
+						senderName = header.SenderID
+					}
 
-				err = s.Handler(conn, header, payload)
-				if err != nil {
-					log.Printf("[Network Error] Handler failed: %v", err)
+					err = s.Handler(conn, header, payload)
+					if err != nil {
+						log.Printf("[Network Error] Handler failed: %v", err)
+					}
 				}
 			}
 		}

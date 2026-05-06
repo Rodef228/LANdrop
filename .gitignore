@@ -1,25 +1,34 @@
-```
-# Dependencies
-.pub/
+# Flutter/Dart specific ignores
 .dart_tool/
+.packages
+.pub-cache/
 build/
+ios/.symlinks/
+lib/generated/
+test/**/generated/**
 
-<<<<<<< HEAD
 *.mod
 *.sum
 *.mp4
-=======
 # Logs and temp files
 *.log
 *.tmp
->>>>>>> 8d2437f9a63752e9c837ba2e1e5665dd9f78016a
 
-# Environment
+
+# Environment variables
 .env
 .env.local
 *.env.*
 
-# Editors
+# Logs
+*.log
+**/*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE specific
 .vscode/
 .idea/
 *.swp
@@ -34,7 +43,6 @@ coverage/
 htmlcov/
 .coverage
 
-<<<<<<< HEAD
 # исполняемые файлы
 cu-bridge
 cu-bridge.exe
@@ -42,7 +50,7 @@ cu-bridge-linux
 cu-bridge-mac
 builds/
 storage/
-=======
+
 # Compressed files
 *.zip
 *.gz
@@ -62,5 +70,6 @@ storage/
 *.Z
 *.lz
 *.lzo
-```
->>>>>>> 8d2437f9a63752e9c837ba2e1e5665dd9f78016a
+# Build outputs
+*.js
+*.map

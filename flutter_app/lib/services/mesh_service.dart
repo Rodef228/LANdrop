@@ -20,9 +20,8 @@ class MeshService extends ChangeNotifier {
   List<Peer> get peers => _peers;
   List<Chat> get chats => _chats;
   Chat? get selectedChat => _selectedChat;
-  List<Message> get messages => _selectedChat != null 
-    ? (_messages[_selectedChat!.id] ?? []) 
-    : [];
+  List<Message> get messages =>
+      _selectedChat != null ? (_messages[_selectedChat!.id] ?? []) : [];
   String get nodeId => _nodeId;
 
   void setServerAddress(String address, int port) {
@@ -35,7 +34,7 @@ class MeshService extends ChangeNotifier {
     try {
       final uri = Uri.parse('ws://$_serverAddress:$_serverPort/ws');
       _channel = WebSocketChannel.connect(uri);
-      
+
       await _channel!.ready;
       _isConnected = true;
       notifyListeners();
@@ -119,7 +118,7 @@ class MeshService extends ChangeNotifier {
           final chatMessages = _messages[msg.chatId] ?? [];
           chatMessages.add(msg);
           _messages[msg.chatId] = chatMessages;
-          
+
           // Update chat list
           _updateChatLastMessage(msg);
           notifyListeners();
@@ -148,7 +147,9 @@ class MeshService extends ChangeNotifier {
         name: oldChat.name,
         isGroup: oldChat.isGroup,
         participants: oldChat.participants,
-        unreadCount: msg.senderId != _nodeId ? oldChat.unreadCount + 1 : oldChat.unreadCount,
+        unreadCount: msg.senderId != _nodeId
+            ? oldChat.unreadCount + 1
+            : oldChat.unreadCount,
         lastMessage: msg.content,
         lastTime: msg.timestamp,
       );

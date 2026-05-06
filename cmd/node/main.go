@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"mesh-cu/internal/api"
 	"mesh-cu/internal/db"
 	"mesh-cu/internal/discovery"
 	"mesh-cu/internal/network"
@@ -145,6 +146,10 @@ func main() {
 			log.Fatalf("[Network] Failed to start server: %v", err)
 		}
 	}()
+
+	// Start WebSocket API for Flutter web interface
+	wsAPI := api.NewWSAPI(*name, *port, registry)
+	wsAPI.Start(ctx, 8765) // WS API port
 
 	time.Sleep(1 * time.Second)
 

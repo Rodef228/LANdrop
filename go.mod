@@ -1,9 +1,10 @@
 module mesh-cu
 
-go 1.23.2
+go 1.19
 
 require (
 	github.com/glebarez/sqlite v1.11.0
+	github.com/gorilla/websocket v1.5.3
 	golang.org/x/sys v0.7.0
 	gorm.io/gorm v1.31.1
 )

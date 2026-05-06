@@ -45,7 +45,8 @@ class Peer {
 }
 
 class MeshService {
-  static const String baseUrl = 'http://localhost:8765/api';
+  // static const String baseUrl = 'http://localhost:8765/api'; // ВОПРОСИК как бы
+  static const String baseUrl = 'http://localhost:8080/api'; // ВОПРОСИК как бы
 
   Future<List<Map<String, dynamic>>> getChats() async {
     try {

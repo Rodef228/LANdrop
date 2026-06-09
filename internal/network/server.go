@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"time"
@@ -62,29 +63,40 @@ func (s *Server) Stop() {
 
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
-	buf := make([]byte, 4096)
-	for {
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		n, err := conn.Read(buf)
+	conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+
+	data, err := io.ReadAll(conn)
+	if err != nil {
+		return
+	}
+
+	if len(data) > 0 {
+		header, payload, err := protocol.Decode(data)
 		if err != nil {
-			break
+			log.Printf("[Network Error] Failed to decode message: %v", err)
+			return
 		}
 
-		if n > 0 {
-			header, payload, err := protocol.Decode(buf[:n])
-			if err != nil {
-				break
+		if s.Handler != nil {
+			senderName, _ := payload["sender_name"].(string)
+			if senderName == "" {
+				senderName = header.SenderID
 			}
 
-			if s.Handler != nil {
-				senderName, _ := payload["sender_name"].(string)
-				if senderName == "" {
-					senderName = header.SenderID
-				}
+			err = s.Handler(conn, header, payload)
 
-				err = s.Handler(conn, header, payload)
-				if err != nil {
-					log.Printf("[Network Error] Handler failed: %v", err)
+			if err != nil {
+				log.Printf("[Network Error] Handler failed: %v", err)
+				if s.Handler != nil {
+					senderName, _ := payload["sender_name"].(string)
+					if senderName == "" {
+						senderName = header.SenderID
+					}
+
+					err = s.Handler(conn, header, payload)
+					if err != nil {
+						log.Printf("[Network Error] Handler failed: %v", err)
+					}
 				}
 			}
 		}

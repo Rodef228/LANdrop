@@ -8,13 +8,14 @@ import (
 type MessageType string
 
 const (
-	TypePing        MessageType = "PING"
-	TypePong        MessageType = "PONG"
-	TypeChat        MessageType = "CHAT"
-	TypeFileRequest MessageType = "FILE_REQ"
-	TypeFileChunk   MessageType = "FILE_CHUNK"
-	TypeFileAck     MessageType = "FILE_ACK"
-	TypeGroupCreate MessageType = "GROUP_CREATE"
+	TypePing         MessageType = "PING"
+	TypePong         MessageType = "PONG"
+	TypeChat         MessageType = "CHAT"
+	TypeFileRequest  MessageType = "FILE_REQ"
+	TypeFileAck      MessageType = "FILE_ACK"
+	TypeFileAnnounce MessageType = "FILE_ANN"   // Анонс файла
+	TypeChunkRequest MessageType = "CHUNK_REQ"  // Запрос чанка
+	TypeFileChunk    MessageType = "FILE_CHUNK" // Сами данные чанка
 )
 
 type Header struct {
@@ -31,6 +32,26 @@ type PingMessage struct {
 
 type ChatMessage struct {
 	Message string `json:"message"`
+}
+
+// Структуры для полезной нагрузки CDN
+type FileAnnouncePayload struct {
+	FileID      string   `json:"file_id"`
+	FileName    string   `json:"file_name"`
+	FileSize    int64    `json:"file_size"`
+	TotalChunks uint32   `json:"total_chunks"`
+	Chunks      []uint32 `json:"chunks"` // Список имеющихся у пира кусков
+}
+
+type ChunkRequestPayload struct {
+	FileID     string `json:"file_id"`
+	ChunkIndex uint32 `json:"chunk_index"`
+}
+
+type ChunkPayload struct {
+	FileID     string `json:"file_id"`
+	ChunkIndex uint32 `json:"chunk_index"`
+	Data       []byte `json:"data"`
 }
 
 func Encode(header Header, payload interface{}) ([]byte, error) {

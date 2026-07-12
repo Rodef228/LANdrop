@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -26,7 +27,30 @@ func main() {
 	storageDir := flag.String("storage", "./storage", "Directory to store files")
 	flag.Parse()
 
-	// Генерируем уникальное имя узла, если не указано явно
+	// Если флаг пустой, проверяем переменную окружения для Андроида
+	if *name == "" {
+		if envName := os.Getenv("NODE_NAME"); envName != "" {
+			*name = envName
+		}
+	}
+
+	// Если порт остался дефолтным, проверяем окружение
+	if *port == 8080 {
+		if envPort := os.Getenv("NODE_PORT"); envPort != "" {
+			if p, err := strconv.Atoi(envPort); err == nil {
+				*port = p
+			}
+		}
+	}
+
+	// Если папка дефолтная, проверяем окружение
+	if *storageDir == "./storage" {
+		if envStorage := os.Getenv("NODE_STORAGE"); envStorage != "" {
+			*storageDir = envStorage
+		}
+	}
+
+	// Твоя родная генерация уникального имени (сработает, если и флаг, и ENV пустые)
 	if *name == "" {
 		hostname, err := os.Hostname()
 		if err != nil {

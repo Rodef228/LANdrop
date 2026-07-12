@@ -34,6 +34,7 @@ vendor/
 thumbs.db
 
 # исполняемые файлы
+mesh_node
 cu-bridge
 cu-bridge.exe
 cu-bridge-linux

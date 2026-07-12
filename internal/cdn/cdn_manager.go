@@ -32,32 +32,54 @@ func NewCDNManager(nodeID string, fm *FileManager) *CDNManager {
 	}
 }
 
-func (cm *CDNManager) Lock() {
-	cm.mu.Lock()
-}
-
-func (cm *CDNManager) Unlock() {
-	cm.mu.Unlock()
-}
-
-func (cm *CDNManager) RLock() {
-	cm.mu.RLock()
-}
-
-func (cm *CDNManager) RUnlock() {
-	cm.mu.RUnlock()
-}
-
+// HandleAnnounce обрабатывает анонс файла от пира.
+// Создаёт FileInfo если его ещё нет, и сохраняет какие чанки есть у отправителя.
+// ВАЖНО: не вызывать при уже захваченном Lock()!
 func (cm *CDNManager) HandleAnnounce(payload protocol.FileAnnouncePayload, senderID string) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	// Создаём FileInfo если его ещё нет (первый раз слышим об этом файле)
+	if _, exists := cm.Files[payload.FileID]; !exists {
+		// Если список чанков пустой — считаем что пир владеет всеми чанками
+		owned := make(map[uint32]bool)
+		if len(payload.Chunks) == 0 {
+			for i := uint32(0); i < payload.TotalChunks; i++ {
+				owned[i] = true
+			}
+		} else {
+			for _, idx := range payload.Chunks {
+				owned[idx] = true
+			}
+		}
+
+		cm.Files[payload.FileID] = &FileInfo{
+			ID:          payload.FileID,
+			Name:        payload.FileName,
+			Size:        payload.FileSize,
+			TotalChunks: payload.TotalChunks,
+			OwnedChunks: owned,
+		}
+	}
+
+	// Сохраняем какие чанки есть у отправителя
 	if _, ok := cm.PeerFiles[payload.FileID]; !ok {
 		cm.PeerFiles[payload.FileID] = make(map[string][]uint32)
 	}
-	cm.PeerFiles[payload.FileID][senderID] = payload.Chunks
+
+	if len(payload.Chunks) > 0 {
+		cm.PeerFiles[payload.FileID][senderID] = payload.Chunks
+	} else {
+		// Если список чанков не передан — считаем что у пира есть все
+		allChunks := make([]uint32, payload.TotalChunks)
+		for i := uint32(0); i < payload.TotalChunks; i++ {
+			allChunks[i] = i
+		}
+		cm.PeerFiles[payload.FileID][senderID] = allChunks
+	}
 }
 
+// GetChunkOwners возвращает список пиров, у которых есть указанный чанк.
 func (cm *CDNManager) GetChunkOwners(fileID string, chunkIndex uint32) []string {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
@@ -76,6 +98,7 @@ func (cm *CDNManager) GetChunkOwners(fileID string, chunkIndex uint32) []string 
 	return owners
 }
 
+// RegisterLocalFile регистрирует локальный файл (которым мы владеем полностью).
 func (cm *CDNManager) RegisterLocalFile(fileID, name string, size int64, originalPath string) *FileInfo {
 	totalChunks := uint32((size + ChunkSize - 1) / ChunkSize)
 	owned := make(map[uint32]bool)
@@ -99,6 +122,7 @@ func (cm *CDNManager) RegisterLocalFile(fileID, name string, size int64, origina
 	return fi
 }
 
+// GetOwnedChunks возвращает список индексов чанков, которыми мы владеем.
 func (cm *CDNManager) GetOwnedChunks(fileID string) []uint32 {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
@@ -115,4 +139,82 @@ func (cm *CDNManager) GetOwnedChunks(fileID string) []uint32 {
 		}
 	}
 	return chunks
+}
+
+// GetFileInfo возвращает копию информации о файле (или nil если файл неизвестен).
+func (cm *CDNManager) GetFileInfo(fileID string) *FileInfo {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	fi, ok := cm.Files[fileID]
+	if !ok {
+		return nil
+	}
+
+	// Возвращаем копию
+	info := &FileInfo{
+		ID:           fi.ID,
+		Name:         fi.Name,
+		OriginalPath: fi.OriginalPath,
+		Size:         fi.Size,
+		TotalChunks:  fi.TotalChunks,
+		OwnedChunks:  make(map[uint32]bool),
+	}
+	for k, v := range fi.OwnedChunks {
+		info.OwnedChunks[k] = v
+	}
+	return info
+}
+
+// MarkChunkOwned отмечает чанк как принадлежащий нам (после скачивания).
+func (cm *CDNManager) MarkChunkOwned(fileID string, chunkIdx uint32) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	fi, ok := cm.Files[fileID]
+	if !ok {
+		return
+	}
+	if fi.OwnedChunks == nil {
+		fi.OwnedChunks = make(map[uint32]bool)
+	}
+	fi.OwnedChunks[chunkIdx] = true
+}
+
+// ReAnnounce отправляет анонс файла всем активным пирам с обновлённым списком чанков.
+func (cm *CDNManager) ReAnnounce(fileID string, registryPeers []protocol.PeerInfo, sendFn func(peerIP string, peerPort int, data []byte) error) {
+	cm.mu.RLock()
+	fi, ok := cm.Files[fileID]
+	if !ok {
+		cm.mu.RUnlock()
+		return
+	}
+	cm.mu.RUnlock()
+
+	chunks := cm.GetOwnedChunks(fileID)
+
+	header := protocol.Header{
+		MessageType: protocol.TypeFileAnnounce,
+		SenderID:    cm.NodeID,
+		SenderName:  cm.NodeID,
+	}
+
+	payload := protocol.FileAnnouncePayload{
+		FileID:      fileID,
+		FileName:    fi.Name,
+		FileSize:    fi.Size,
+		TotalChunks: fi.TotalChunks,
+		Chunks:      chunks,
+	}
+
+	encoded, err := protocol.Encode(header, payload)
+	if err != nil {
+		return
+	}
+
+	for _, p := range registryPeers {
+		if p.ID != cm.NodeID {
+			sendFn(p.IP, p.Port, encoded)
+		}
+	}
 }

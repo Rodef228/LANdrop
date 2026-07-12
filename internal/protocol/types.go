@@ -54,6 +54,14 @@ type ChunkPayload struct {
 	Data       []byte `json:"data"`
 }
 
+// PeerInfo — информация о пире для ре-анонса и других операций.
+type PeerInfo struct {
+	ID   string
+	IP   string
+	Port int
+	Name string
+}
+
 func Encode(header Header, payload interface{}) ([]byte, error) {
 	temp := struct {
 		Header

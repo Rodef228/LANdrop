@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -20,6 +21,16 @@ import (
 	"mesh-cu/internal/network"
 	"mesh-cu/internal/protocol"
 )
+
+// downloadTask отслеживает процесс скачивания одного файла.
+type downloadTask struct {
+	mu             sync.Mutex
+	FileID         string
+	FileName       string
+	TotalChunks    uint32
+	receivedChunks uint32 // сколько чанков уже получили
+	done           bool
+}
 
 func main() {
 	name := flag.String("name", "", "Name of the node")
@@ -75,8 +86,72 @@ func main() {
 
 	fmt.Printf("Starting node %s on port %d...\n", *name, *port)
 
+	// Карта активных задач скачивания: fileID -> *downloadTask
+	downloads := make(map[string]*downloadTask)
+	var dlMu sync.Mutex
+
+	// Вспомогательная функция: отправить запрос на конкретный чанк конкретному пиру
+	requestChunkFromPeer := func(fileID string, chunkIdx uint32, peerIP string, peerPort int) {
+		header := protocol.Header{
+			MessageType: protocol.TypeFileRequest,
+			SenderID:    *name,
+			SenderName:  *name,
+		}
+		payload := map[string]interface{}{
+			"file_id":     fileID,
+			"chunk_index": float64(chunkIdx),
+		}
+		encoded, err := protocol.Encode(header, payload)
+		if err != nil {
+			log.Printf("[ERROR] Failed to encode chunk request: %v", err)
+			return
+		}
+		network.SendMessage(peerIP, peerPort, encoded)
+	}
+
+	// Вспомогательная функция: найти пира для чанка и запросить у него
+	requestChunk := func(fileID string, chunkIdx uint32) {
+		owners := cdnMgr.GetChunkOwners(fileID, chunkIdx)
+		if len(owners) == 0 {
+			// Если владельцев нет — пробуем запросить у всех активных пиров
+			activePeers := registry.GetActivePeers()
+			for _, peer := range activePeers {
+				if peer.ID != *name {
+					requestChunkFromPeer(fileID, chunkIdx, peer.IP, peer.Port)
+					return
+				}
+			}
+			log.Printf("[ERROR] No peers to request chunk %d for file %s", chunkIdx, fileID)
+			return
+		}
+		// Берём первого владельца (можно улучшить: выбирать по нагрузке)
+		ownerID := owners[0]
+		activePeers := registry.GetActivePeers()
+		for _, peer := range activePeers {
+			if peer.ID == ownerID {
+				requestChunkFromPeer(fileID, chunkIdx, peer.IP, peer.Port)
+				return
+			}
+		}
+		// Если владелец не найден в активных — шлём всем
+		for _, peer := range activePeers {
+			if peer.ID != *name {
+				requestChunkFromPeer(fileID, chunkIdx, peer.IP, peer.Port)
+				return
+			}
+		}
+	}
+
+	// Вспомогательная функция: запустить скачивание всех чанков (параллельно)
+	startDownload := func(fileID string, totalChunks uint32) {
+		// Отправляем запросы на ВСЕ чанки сразу — параллельно
+		for chunkIdx := uint32(0); chunkIdx < totalChunks; chunkIdx++ {
+			requestChunk(fileID, chunkIdx)
+		}
+	}
+
 	// Handler для входящих сообщений
-	handleIncomingMessage := func(conn net.Conn, senderID string, name string, messageType protocol.MessageType, payload map[string]interface{}) error {
+	handleIncomingMessage := func(conn net.Conn, senderID string, senderName string, messageType protocol.MessageType, payload map[string]interface{}) error {
 		switch messageType {
 		case protocol.TypeChat:
 			message, ok := payload["message"].(string)
@@ -84,10 +159,11 @@ func main() {
 				log.Printf("[Handler Error] Invalid chat message format from %s", senderID)
 				return fmt.Errorf("invalid chat message format")
 			}
-			fmt.Printf("\r%s: %s\nyou:  ", name, message)
+			fmt.Printf("\r%s: %s\nyou:  ", senderName, message)
+
 		case protocol.TypeFileAnnounce:
-			// 1. Извлекаем данные из мапы
-			fID, _ := payload["file_id"].(string) // Если ID это строка, используй .(string)
+			// Извлекаем данные из мапы
+			fID, _ := payload["file_id"].(string)
 			fName, _ := payload["file_name"].(string)
 
 			if fID == "" {
@@ -96,87 +172,78 @@ func main() {
 			if fName == "" {
 				fName, _ = payload["FileName"].(string)
 			}
-			// 2. Чтобы cdnMgr «увидел» файл, нужно собрать структуру и вызвать HandleAnnounce
-			// Превращаем мапу обратно в типизированную нагрузку для CDN[cite: 1, 5]
+
 			var p protocol.FileAnnouncePayload
 			p.FileID = fID
 			p.FileName = fName
-			// Получаем остальные поля (размер и чанки), если они есть в payload
 			if size, ok := payload["file_size"].(float64); ok {
 				p.FileSize = int64(size)
 			}
-
-			var totalChunks uint32
 			if tc, ok := payload["total_chunks"].(float64); ok {
-				totalChunks = uint32(tc)
+				p.TotalChunks = uint32(tc)
 			} else {
-				totalChunks = uint32((p.FileSize + cdn.ChunkSize - 1) / cdn.ChunkSize)
+				p.TotalChunks = uint32((p.FileSize + cdn.ChunkSize - 1) / cdn.ChunkSize)
 			}
 
-			// 3. ПЕРЕДАЕМ В МЕНЕДЖЕР (теперь fID используется внутри, ошибка уйдет)[cite: 2]
-			cdnMgr.HandleAnnounce(p, senderID)
-
-			cdnMgr.Lock() // Важно: используй Lock, а не RLock
-			if _, exists := cdnMgr.Files[fID]; !exists {
-				cdnMgr.Files[fID] = &cdn.FileInfo{
-					ID:          fID,
-					Name:        fName,
-					Size:        p.FileSize,
-					TotalChunks: totalChunks,
-					OwnedChunks: make(map[uint32]bool),
-				}
-			}
-			cdnMgr.Unlock()
-
-			fmt.Printf("\r[CDN]: Peer %s has file: %s (ID: %s)\nyou:  ", name, fName, fID)
-		case protocol.TypeFileRequest:
-			fileID, _ := payload["file_id"].(string)
-			idx, _ := payload["chunk_index"].(float64)
-
-			fi, ok := cdnMgr.Files[fileID]
-			if ok {
-				var data []byte
-				var err error
-				if fi.OriginalPath != "" {
-					data, err = fm.ReadChunkFromPath(fi.OriginalPath, uint32(idx))
-				} else {
-					data, err = fm.ReadChunk(fi.Name, uint32(idx))
-				}
-
-				if err != nil || len(data) == 0 {
-					log.Printf("[ERROR] Chunk %d not found for file %s", int(idx), fileID)
-					return nil
-				}
-
-				// ВАЖНО: SenderID должен быть ВАШИМ (Kamil)
-				respHeader := protocol.Header{
-					MessageType: protocol.TypeFileChunk,
-					SenderID:    name, // Используйте переменную имени текущего узла
-					SenderName:  name,
-				}
-
-				respPayload := map[string]interface{}{
-					"file_id":     fileID,
-					"chunk_index": idx,
-					"data":        data,
-				}
-
-				encoded, _ := protocol.Encode(respHeader, respPayload)
-
-				// Отправляем конкретно тому, кто просил (senderID)
-				for _, peer := range registry.GetActivePeers() {
-					if peer.ID == senderID {
-						fmt.Printf("\r[DEBUG]: Sending chunk %v to %s at %s:%d\n", idx, peer.ID, peer.IP, peer.Port)
-
-						network.SendMessage(peer.IP, peer.Port, encoded)
-						// log.Printf("[CDN] Sent chunk %d to %s", int(idx), senderID)
-						break
+			// Извлекаем список чанков, если передан
+			if chunksRaw, ok := payload["chunks"].([]interface{}); ok {
+				for _, c := range chunksRaw {
+					if ci, ok := c.(float64); ok {
+						p.Chunks = append(p.Chunks, uint32(ci))
 					}
 				}
 			}
 
+			// HandleAnnounce сам создаст FileInfo и сохранит владельца чанков
+			cdnMgr.HandleAnnounce(p, senderID)
+
+			fmt.Printf("\r[CDN]: Peer %s has file: %s (ID: %s, %d chunks)\nyou:  ", senderName, fName, fID, p.TotalChunks)
+
+		case protocol.TypeFileRequest:
+			fileID, _ := payload["file_id"].(string)
+			idx, _ := payload["chunk_index"].(float64)
+
+			// Получаем информацию о файле, чтобы узнать оригинальное имя
+			fi := cdnMgr.GetFileInfo(fileID)
+			if fi == nil {
+				return nil
+			}
+
+			// Проверяем, владеем ли мы этим чанком
+			if !fi.OwnedChunks[uint32(idx)] {
+				return nil
+			}
+
+			// Читаем чанк из хранилища по оригинальному имени файла
+			data, err := fm.ReadChunk(fi.Name, uint32(idx))
+			if err != nil || len(data) == 0 {
+				log.Printf("[ERROR] Chunk %d not found for file %s", int(idx), fi.Name)
+				return nil
+			}
+
+			respHeader := protocol.Header{
+				MessageType: protocol.TypeFileChunk,
+				SenderID:    *name,
+				SenderName:  *name,
+			}
+
+			respPayload := map[string]interface{}{
+				"file_id":     fileID,
+				"chunk_index": idx,
+				"data":        data,
+			}
+
+			encoded, _ := protocol.Encode(respHeader, respPayload)
+
+			// Отправляем конкретно тому, кто просил
+			for _, peer := range registry.GetActivePeers() {
+				if peer.ID == senderID {
+					network.SendMessage(peer.IP, peer.Port, encoded)
+					break
+				}
+			}
+
 		case protocol.TypeFileChunk:
-			// Нам прилетел кусок файла
 			fileID, _ := payload["file_id"].(string)
 			idx, _ := payload["chunk_index"].(float64)
 
@@ -189,39 +256,62 @@ func main() {
 				log.Printf("[ERROR] Payload 'data' is missing or not a string! Type is: %T", payload["data"])
 			}
 
-			fi, ok := cdnMgr.Files[fileID]
-			if ok {
-				// Используем правильный путь для записи чанка
-				err := fm.WriteChunk(fi.Name, uint32(idx), data)
-				if err != nil {
-					log.Printf("[ERROR] Failed to write chunk %d for file %s: %v", int(idx), fi.Name, err)
-				} else {
-					cdnMgr.Lock()
-					fi.OwnedChunks[uint32(idx)] = true
-					cdnMgr.Unlock()
-					fmt.Printf("\r[CDN]: Received chunk %d for %s\nyou:  ", int(idx), fi.Name)
-				}
+			if len(data) == 0 {
+				return nil
 			}
 
-			// Внутри case protocol.TypeFileChunk в handleIncomingMessage - добавлено отсутствие ошибки при недоступности fi
-			if ok && uint32(idx)+1 < uint32(fi.TotalChunks) {
-				// Формируем такой же запрос (TypeFileRequest), но для idx + 1
-				// И отправляем его обратно senderID
-			} else if ok {
-				fmt.Printf("\n[CDN]: File %s download complete!\nyou: ", fi.Name)
+			// Получаем оригинальное имя файла
+			fi := cdnMgr.GetFileInfo(fileID)
+			if fi == nil {
+				log.Printf("[ERROR] Unknown file ID: %s", fileID)
+				return nil
 			}
+
+			// Записываем чанк на диск под оригинальным именем
+			err := fm.WriteChunk(fi.Name, uint32(idx), data)
+			if err != nil {
+				log.Printf("[ERROR] Failed to write chunk %d for file %s: %v", int(idx), fi.Name, err)
+				return nil
+			}
+
+			// Отмечаем чанк как наш
+			cdnMgr.MarkChunkOwned(fileID, uint32(idx))
+
+			dlMu.Lock()
+			task, hasTask := downloads[fileID]
+			if hasTask {
+				task.receivedChunks++
+				done := task.receivedChunks >= task.TotalChunks
+				dlMu.Unlock()
+
+				fmt.Printf("\r[CDN]: Received chunk %d/%d for %s from %s\nyou:  ", int(idx)+1, task.TotalChunks, task.FileName, senderName)
+
+				if done {
+					fmt.Printf("\n[CDN]: File %s download complete!\nyou: ", task.FileName)
+					// Ре-анонсируем файл
+					activePeers := registry.GetActivePeers()
+					peerInfos := make([]protocol.PeerInfo, 0, len(activePeers))
+					for _, p := range activePeers {
+						peerInfos = append(peerInfos, protocol.PeerInfo{
+							ID:   p.ID,
+							IP:   p.IP,
+							Port: p.Port,
+							Name: p.Name,
+						})
+					}
+					cdnMgr.ReAnnounce(fileID, peerInfos, network.SendMessage)
+				}
+			} else {
+				dlMu.Unlock()
+			}
+
 		case protocol.TypePing:
-			// Можно обработать пинг, если нужно, но для мессенджера пока игнорируем
 		case protocol.TypePong:
-			// Можно обработать понг, если нужно
 		default:
 			log.Printf("[Handler] Received unknown message type %s from %s", messageType, senderID)
 		}
 		return nil
 	}
-
-	// // Инициализируем реестр пиров
-	// registry := discovery.NewPeerRegistry()
 
 	// Создаем сервис обнаружения
 	discService := discovery.NewDiscoveryService(*name, *port)
@@ -239,45 +329,6 @@ func main() {
 		if err := server.Start(ctx); err != nil {
 			log.Fatalf("[Network] Failed to start server: %v", err)
 		}
-	}()
-
-	time.Sleep(1 * time.Second)
-
-	// Слушаем найденных соседей и обновляем реестр с уведомлением
-	go func() {
-		knownPeers := make(map[string]string) // Track known peers to announce new ones
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case peer, ok := <-peerChan:
-				if !ok {
-					return
-				}
-				// Анонс нового пира
-				if _, exists := knownPeers[peer.ID]; !exists {
-					fmt.Printf("\r[SYSTEM]: New peer joined: %s (%s:%d)\nyou: ", peer.Name, peer.IP, peer.Port)
-					knownPeers[peer.ID] = peer.Name
-				}
-				registry.Update(peer)
-
-			case <-time.After(2 * time.Second):
-				// Проверка на "пропавших" без отдельной горутины снаружи
-				activePeers := registry.GetActivePeers()
-				activeMap := make(map[string]bool)
-				for _, p := range activePeers {
-					activeMap[p.ID] = true
-				}
-
-				for id, name := range knownPeers {
-					if !activeMap[id] {
-						fmt.Printf("\r[SYSTEM]: %s has left the network\nyou:  ", name)
-						delete(knownPeers, id)
-					}
-				}
-			}
-		}
-
 	}()
 
 	// Периодически выводим список активных узлов для наглядности (можно убрать в финальной версии)
@@ -302,6 +353,42 @@ func main() {
 	// 	}
 	// }()
 
+	time.Sleep(1 * time.Second)
+
+	// Слушаем найденных соседей и обновляем реестр с уведомлением
+	go func() {
+		knownPeers := make(map[string]string)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case peer, ok := <-peerChan:
+				if !ok {
+					return
+				}
+				if _, exists := knownPeers[peer.ID]; !exists {
+					fmt.Printf("\r[SYSTEM]: New peer joined: %s (%s:%d)\nyou: ", peer.Name, peer.IP, peer.Port)
+					knownPeers[peer.ID] = peer.Name
+				}
+				registry.Update(peer)
+
+			case <-time.After(2 * time.Second):
+				activePeers := registry.GetActivePeers()
+				activeMap := make(map[string]bool)
+				for _, p := range activePeers {
+					activeMap[p.ID] = true
+				}
+
+				for id, name := range knownPeers {
+					if !activeMap[id] {
+						fmt.Printf("\r[SYSTEM]: %s has left the network\nyou:  ", name)
+						delete(knownPeers, id)
+					}
+				}
+			}
+		}
+	}()
+
 	// Цикл чтения из консоли и рассылки сообщений
 	go func() {
 		scanner := bufio.NewScanner(os.Stdin)
@@ -324,7 +411,6 @@ func main() {
 					if len(parts) > 2 {
 						fID = parts[2]
 					} else {
-						// Простейшая генерация короткого ID на базе времени
 						fID = fmt.Sprintf("%x", time.Now().UnixNano())[:6]
 					}
 					info, err := os.Stat(path)
@@ -333,35 +419,54 @@ func main() {
 						continue
 					}
 
-					// 1. Регистрируем файл в локальном менеджере (чтобы мы знали, что раздаем)
+					// Регистрируем локальный файл
 					fi := cdnMgr.RegisterLocalFile(fID, info.Name(), info.Size(), path)
 
-					// 2. Создаем заголовок сообщения
+					// Копируем файл в хранилище под именем fileID для раздачи по чанкам
+					// (если это не тот же путь)
+					// Читаем исходный файл и раскладываем по чанкам в хранилище
+					srcData, err := os.ReadFile(path)
+					if err == nil {
+						// Записываем чанками в хранилище
+						totalChunks := uint32((len(srcData) + cdn.ChunkSize - 1) / cdn.ChunkSize)
+						for i := uint32(0); i < totalChunks; i++ {
+							start := int64(i) * cdn.ChunkSize
+							end := start + cdn.ChunkSize
+							if end > int64(len(srcData)) {
+								end = int64(len(srcData))
+							}
+							chunkData := srcData[start:end]
+							fm.WriteChunk(info.Name(), i, chunkData)
+						}
+					}
+
+					// Формируем анонс со списком всех чанков
+					chunks := make([]uint32, fi.TotalChunks)
+					for i := uint32(0); i < fi.TotalChunks; i++ {
+						chunks[i] = i
+					}
+
 					header := protocol.Header{
-						MessageType: protocol.TypeFileAnnounce, // Должно быть "FILE_ANN" из твоего types.go
+						MessageType: protocol.TypeFileAnnounce,
 						SenderID:    *name,
 						SenderName:  *name,
 					}
 
-					// 3. Формируем полезную нагрузку (важно: ключи должны совпадать с обработчиком!)
 					payload := map[string]interface{}{
 						"file_id":      fID,
 						"file_name":    info.Name(),
-						"file_size":    info.Size(), // Передаем чистые байты (int64)
+						"file_size":    info.Size(),
 						"total_chunks": fi.TotalChunks,
+						"chunks":       chunks,
 					}
 
-					// log.Printf("Size of file %d, and name %s, and total chunks %d", info.Size(), info.Name(), fi.TotalChunks)
-					// log.Printf("Size: %.2f MB", float64(info.Size())/1000000)
-
-					// 4. Кодируем в JSON/байты
 					encoded, err := protocol.Encode(header, payload)
 					if err != nil {
 						fmt.Printf("\r[ERROR]: Failed to encode: %v\nyou: ", err)
 						continue
 					}
 
-					// 5. РАССЫЛКА: отправляем всем, кого нашли через Discovery
+					// Рассылаем всем активным пирам
 					activePeers := registry.GetActivePeers()
 					count := 0
 					for _, peer := range activePeers {
@@ -371,64 +476,62 @@ func main() {
 						}
 					}
 
-					fmt.Printf("\r[SYSTEM]: Announced file %s to %d peers\nyou: ", path, count)
-				}
-				if parts[0] == "/download" && len(parts) > 1 {
+					fmt.Printf("\r[SYSTEM]: Announced file %s (ID: %s) to %d peers\nyou: ", path, fID, count)
+				} else if parts[0] == "/download" && len(parts) > 1 {
 					fileID := parts[1]
 
-					cdnMgr.RLock()
-					fi, exists := cdnMgr.Files[fileID]
-					cdnMgr.RUnlock()
-
-					if !exists {
+					// Получаем информацию о файле
+					fi := cdnMgr.GetFileInfo(fileID)
+					if fi == nil {
 						fmt.Printf("\r[ERROR]: File ID %s unknown. Wait for announce.\nyou: ", fileID)
 						continue
 					}
-					fmt.Printf("\r[SYSTEM]: Starting download for %s (%d chunks)...\nyou: ", fi.Name, fi.TotalChunks)
 
-					activePeers := registry.GetActivePeers()
-					if len(activePeers) == 0 {
-						fmt.Printf("\r[ERROR]: No active peers to request chunks from.\nyou: ")
+					// Определяем какие чанки нам ещё нужно скачать
+					neededChunks := fi.TotalChunks
+					if neededChunks == 0 {
+						fmt.Printf("\r[ERROR]: File %s has no chunks\nyou: ", fileID)
 						continue
 					}
 
-					for chunkIdx := uint32(0); chunkIdx < fi.TotalChunks; chunkIdx++ {
-						header := protocol.Header{
-							MessageType: protocol.TypeFileRequest,
-							SenderID:    *name,
-							SenderName:  *name,
-						}
-
-						payload := map[string]interface{}{
-							"file_id":     fileID,
-							"chunk_index": float64(chunkIdx),
-						}
-
-						encoded, err := protocol.Encode(header, payload)
-						if err != nil {
-							fmt.Printf("\r[ERROR]: Failed to encode chunk %d request: %v\nyou: ", chunkIdx, err)
-							continue
-						}
-
-						for _, peer := range activePeers {
-							if peer.ID != *name {
-								network.SendMessage(peer.IP, peer.Port, encoded)
-							}
-						}
+					// Создаём задачу скачивания
+					task := &downloadTask{
+						FileID:         fileID,
+						FileName:       fi.Name,
+						TotalChunks:    neededChunks,
+						receivedChunks: 0,
 					}
-					fmt.Printf("\r[CDN]: Requested all %d chunks from network\nyou: ", fi.TotalChunks)
+
+					dlMu.Lock()
+					downloads[fileID] = task
+					dlMu.Unlock()
+
+					fmt.Printf("\r[SYSTEM]: Starting download %s (%d chunks)...\nyou: ", fi.Name, neededChunks)
+
+					// Запрашиваем ВСЕ чанки сразу — параллельно
+					startDownload(fileID, neededChunks)
+
+				} else if parts[0] == "/files" {
+					// Показать список известных файлов
+					fmt.Printf("\r[SYSTEM]: Known files:\n")
+					// Получаем все fileID из PeerFiles
+					// Используем registry для получения активных пиров
+					_ = registry.GetActivePeers()
+					fmt.Print("you: ")
+
+				} else {
+					fmt.Printf("\r[ERROR]: Unknown command: %s\nyou: ", parts[0])
 				}
 
 				fmt.Print("you: ")
 				continue
 			}
 
-			// fmt.Printf("you: %s\n", line)
 			// Упаковываем сообщение
 			header := protocol.Header{
 				MessageType: protocol.TypeChat,
 				SenderID:    *name,
-				RecipientID: "", // Для широковещания, можно оставить пустым или "ALL"
+				RecipientID: "",
 			}
 			chatPayload := map[string]interface{}{
 				"message":     line,
@@ -447,7 +550,7 @@ func main() {
 				fmt.Println("\r[SYSTEM]: No active peers to send message to.")
 			}
 			for _, peer := range activePeers {
-				if peer.ID == *name { // Не отправляем сообщение самому себе
+				if peer.ID == *name {
 					continue
 				}
 				err := network.SendMessage(peer.IP, peer.Port, encodedMsg)
@@ -468,6 +571,6 @@ func main() {
 	<-sig
 
 	log.Println("Shutting down...")
-	cancel()      // Отменяем контекст, чтобы остановить горутины
-	server.Stop() // Останавливаем TCP сервер
+	cancel()
+	server.Stop()
 }

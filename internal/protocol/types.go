@@ -16,6 +16,7 @@ const (
 	TypeFileAnnounce MessageType = "FILE_ANN"   // Анонс файла
 	TypeChunkRequest MessageType = "CHUNK_REQ"  // Запрос чанка
 	TypeFileChunk    MessageType = "FILE_CHUNK" // Сами данные чанка
+	TypeCatalog      MessageType = "CATALOG"    // Полный каталог файлов в сети
 )
 
 type Header struct {
@@ -60,6 +61,20 @@ type PeerInfo struct {
 	IP   string
 	Port int
 	Name string
+}
+
+// CatalogEntry — одна запись в распределённом каталоге файлов.
+type CatalogEntry struct {
+	FileID      string              `json:"file_id"`
+	FileName    string              `json:"file_name"`
+	FileSize    int64               `json:"file_size"`
+	TotalChunks uint32              `json:"total_chunks"`
+	Owners      map[string][]uint32 `json:"owners"` // peerID -> chunkIndices
+}
+
+// CatalogPayload — полезная нагрузка для TypeCatalog.
+type CatalogPayload struct {
+	Entries []CatalogEntry `json:"entries"`
 }
 
 func Encode(header Header, payload interface{}) ([]byte, error) {

@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"mesh-cu/internal/catalog"
 	"mesh-cu/internal/cdn"
 	"mesh-cu/internal/discovery"
 	"mesh-cu/internal/network"
@@ -77,6 +78,7 @@ func main() {
 	}
 	cdnMgr := cdn.NewCDNManager(*name, fm)
 	registry := discovery.NewPeerRegistry()
+	fileCatalog := catalog.NewCatalog()
 
 	// Welcome Message
 	fmt.Printf("Welcome to Mesh-CU Messenger, %s!\n", *name)
@@ -150,6 +152,50 @@ func main() {
 		}
 	}
 
+	// Вспомогательная функция: отправить наш каталог конкретному пиру
+	sendCatalogToPeer := func(peerIP string, peerPort int) {
+		entries := fileCatalog.GetEntries()
+		if len(entries) == 0 {
+			return // нечего отправлять
+		}
+		header := protocol.Header{
+			MessageType: protocol.TypeCatalog,
+			SenderID:    *name,
+			SenderName:  *name,
+		}
+		payload := protocol.CatalogPayload{Entries: entries}
+		encoded, err := protocol.Encode(header, payload)
+		if err != nil {
+			log.Printf("[ERROR] Failed to encode catalog: %v", err)
+			return
+		}
+		network.SendMessage(peerIP, peerPort, encoded)
+	}
+
+	// Вспомогательная функция: разослать наш каталог всем активным пирам
+	broadcastCatalog := func() {
+		entries := fileCatalog.GetEntries()
+		if len(entries) == 0 {
+			return
+		}
+		header := protocol.Header{
+			MessageType: protocol.TypeCatalog,
+			SenderID:    *name,
+			SenderName:  *name,
+		}
+		payload := protocol.CatalogPayload{Entries: entries}
+		encoded, err := protocol.Encode(header, payload)
+		if err != nil {
+			log.Printf("[ERROR] Failed to encode catalog: %v", err)
+			return
+		}
+		for _, peer := range registry.GetActivePeers() {
+			if peer.ID != *name {
+				network.SendMessage(peer.IP, peer.Port, encoded)
+			}
+		}
+	}
+
 	// Handler для входящих сообщений
 	handleIncomingMessage := func(conn net.Conn, senderID string, senderName string, messageType protocol.MessageType, payload map[string]interface{}) error {
 		switch messageType {
@@ -196,6 +242,9 @@ func main() {
 
 			// HandleAnnounce сам создаст FileInfo и сохранит владельца чанков
 			cdnMgr.HandleAnnounce(p, senderID)
+
+			// Обновляем каталог
+			fileCatalog.AddOrUpdate(fID, senderID, fName, p.FileSize, p.TotalChunks, p.Chunks)
 
 			fmt.Printf("\r[CDN]: Peer %s has file: %s (ID: %s, %d chunks)\nyou:  ", senderName, fName, fID, p.TotalChunks)
 
@@ -300,9 +349,60 @@ func main() {
 						})
 					}
 					cdnMgr.ReAnnounce(fileID, peerInfos, network.SendMessage)
+
+					// Обновляем каталог: теперь мы тоже владеем всеми чанками
+					fi := cdnMgr.GetFileInfo(fileID)
+					if fi != nil {
+						allChunks := make([]uint32, fi.TotalChunks)
+						for i := uint32(0); i < fi.TotalChunks; i++ {
+							allChunks[i] = i
+						}
+						fileCatalog.AddOrUpdate(fileID, *name, fi.Name, fi.Size, fi.TotalChunks, allChunks)
+						// Рассылаем обновлённый каталог всем
+						broadcastCatalog()
+					}
 				}
 			} else {
 				dlMu.Unlock()
+			}
+
+		case protocol.TypeCatalog:
+			// Получен каталог от пира — сливаем с нашим
+			if entriesRaw, ok := payload["entries"].([]interface{}); ok {
+				var entries []protocol.CatalogEntry
+				for _, eRaw := range entriesRaw {
+					if eMap, ok := eRaw.(map[string]interface{}); ok {
+						entry := protocol.CatalogEntry{
+							Owners: make(map[string][]uint32),
+						}
+						entry.FileID, _ = eMap["file_id"].(string)
+						entry.FileName, _ = eMap["file_name"].(string)
+						if fs, ok := eMap["file_size"].(float64); ok {
+							entry.FileSize = int64(fs)
+						}
+						if tc, ok := eMap["total_chunks"].(float64); ok {
+							entry.TotalChunks = uint32(tc)
+						}
+						if ownersRaw, ok := eMap["owners"].(map[string]interface{}); ok {
+							for peerID, chunksRaw := range ownersRaw {
+								if chunksList, ok := chunksRaw.([]interface{}); ok {
+									var chunks []uint32
+									for _, c := range chunksList {
+										if ci, ok := c.(float64); ok {
+											chunks = append(chunks, uint32(ci))
+										}
+									}
+									entry.Owners[peerID] = chunks
+								}
+							}
+						}
+						entries = append(entries, entry)
+					}
+				}
+				if len(entries) > 0 {
+					fileCatalog.Merge(entries)
+					fmt.Printf("\r[CATALOG]: Received catalog from %s (%d files)\nyou: ", senderName, len(entries))
+				}
 			}
 
 		case protocol.TypePing:
@@ -359,6 +459,17 @@ func main() {
 
 	time.Sleep(1 * time.Second)
 
+	// Устанавливаем callback на выход пира из сети
+	registry.SetOnPeerLeave(func(peerID string) {
+		// Удаляем файлы пира из каталога
+		affected := fileCatalog.RemovePeer(peerID)
+		if len(affected) > 0 {
+			fmt.Printf("\r[SYSTEM]: Peer %s left, removed from %d file(s)\nyou: ", peerID, len(affected))
+			// Рассылаем обновлённый каталог всем оставшимся
+			broadcastCatalog()
+		}
+	})
+
 	// Чтение найденных пиров из Discovery
 	go func() {
 		knownPeers := make(map[string]bool)
@@ -379,6 +490,9 @@ func main() {
 			if !knownPeers[peerKey] {
 				fmt.Printf("\r[SYSTEM]: New peer joined: %s (%s:%d)\nyou: ", peer.Name, peer.IP, peer.Port)
 				knownPeers[peerKey] = true
+
+				// Отправляем новому пиру наш текущий каталог файлов
+				sendCatalogToPeer(peer.IP, peer.Port)
 			}
 
 			// Если всё ок, добавляем пира в реестр
@@ -473,6 +587,11 @@ func main() {
 						}
 					}
 
+					// Обновляем каталог: мы владеем всеми чанками
+					fileCatalog.AddOrUpdate(fID, *name, info.Name(), info.Size(), fi.TotalChunks, chunks)
+					// Рассылаем обновлённый каталог всем
+					broadcastCatalog()
+
 					fmt.Printf("\r[SYSTEM]: Announced file %s (ID: %s) to %d peers\nyou: ", path, fID, count)
 				} else if parts[0] == "/download" && len(parts) > 1 {
 					fileID := parts[1]
@@ -509,12 +628,22 @@ func main() {
 					startDownload(fileID, neededChunks)
 
 				} else if parts[0] == "/files" {
-					// Показать список известных файлов
-					fmt.Printf("\r[SYSTEM]: Known files:\n")
-					// Получаем все fileID из PeerFiles
-					// Используем registry для получения активных пиров
-					_ = registry.GetActivePeers()
-					fmt.Print("you: ")
+					// Показать список известных файлов из каталога
+					entries := fileCatalog.GetEntries()
+					if len(entries) == 0 {
+						fmt.Printf("\r[SYSTEM]: No files in catalog.\nyou: ")
+					} else {
+						fmt.Printf("\r[SYSTEM]: Known files (%d):\n", len(entries))
+						for _, e := range entries {
+							ownerCount := len(e.Owners)
+							fmt.Printf("  - %s (ID: %s, size: %d bytes, chunks: %d, owners: %d)\n",
+								e.FileName, e.FileID, e.FileSize, e.TotalChunks, ownerCount)
+							for peerID, chunks := range e.Owners {
+								fmt.Printf("      [%s] has %d chunk(s)\n", peerID, len(chunks))
+							}
+						}
+						fmt.Print("you: ")
+					}
 
 				} else {
 					fmt.Printf("\r[ERROR]: Unknown command: %s\nyou: ", parts[0])

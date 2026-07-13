@@ -12,8 +12,9 @@ type registeredPeer struct {
 
 // PeerRegistry хранит список активных узлов в сети.
 type PeerRegistry struct {
-	mu    sync.RWMutex
-	peers map[string]registeredPeer
+	mu          sync.RWMutex
+	peers       map[string]registeredPeer
+	onPeerLeave func(peerID string) // callback при удалении пира
 }
 
 // NewPeerRegistry создает новый экземпляр реестра и запускает очистку.
@@ -23,6 +24,14 @@ func NewPeerRegistry() *PeerRegistry {
 	}
 	go r.cleanupLoop()
 	return r
+}
+
+// SetOnPeerLeave устанавливает callback, который вызывается при удалении пира
+// из реестра (по таймауту 30 сек).
+func (r *PeerRegistry) SetOnPeerLeave(fn func(peerID string)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.onPeerLeave = fn
 }
 
 // Update добавляет или обновляет информацию об узле.
@@ -66,6 +75,11 @@ func (r *PeerRegistry) cleanup() {
 	for id, p := range r.peers {
 		if now.Sub(p.LastSeen) > 30*time.Second {
 			delete(r.peers, id)
+			// Вызываем callback (если установлен) в горутине,
+			// чтобы не блокировать cleanup и избежать deadlock'ов
+			if r.onPeerLeave != nil {
+				go r.onPeerLeave(id)
+			}
 		}
 	}
 }

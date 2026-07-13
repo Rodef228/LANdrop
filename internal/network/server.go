@@ -35,6 +35,15 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start TCP server on port %d: %w", s.Port, err)
 	}
 	s.listener = listener
+
+	// ВАЖНО: Вытаскиваем реальный порт, выделенный операционной системой
+	actualPort := s.listener.Addr().(*net.TCPAddr).Port
+
+	// Перезаписываем его в структуру сервера, чтобы Discovery и другие модули
+	// видели актуальный порт вместо 0
+	s.Port = actualPort
+
+	// Теперь лог честно покажет реальный порт (например, 49215)
 	log.Printf("[Network] TCP Server started on port %d", s.Port)
 
 	go func() {
@@ -44,9 +53,17 @@ func (s *Server) Start(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			default:
+				// Небольшой совет на будущее: если сервер останавливается,
+				// s.listener.Accept() вернет ошибку. Чтобы горутина не крутилась
+				// в бесконечном пустом цикле при закрытии, можно проверять контекст.
 				conn, err := s.listener.Accept()
 				if err != nil {
-					continue
+					select {
+					case <-ctx.Done():
+						return
+					default:
+						continue
+					}
 				}
 				go s.handleConnection(conn)
 			}
@@ -64,7 +81,7 @@ func (s *Server) Stop() {
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	conn.SetReadDeadline(time.Now().Add(15 * time.Second))
-	
+
 	data, err := io.ReadAll(conn)
 	if err != nil {
 		return

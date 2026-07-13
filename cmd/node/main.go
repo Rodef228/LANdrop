@@ -34,7 +34,7 @@ type downloadTask struct {
 
 func main() {
 	name := flag.String("name", "", "Name of the node")
-	port := flag.Int("port", 8080, "TCP port to listen on")
+	port := flag.Int("port", 0, "TCP port to listen on")
 	storageDir := flag.String("storage", "./storage", "Directory to store files")
 	flag.Parse()
 
@@ -46,7 +46,7 @@ func main() {
 	}
 
 	// Если порт остался дефолтным, проверяем окружение
-	if *port == 8080 {
+	if *port == 0 {
 		if envPort := os.Getenv("NODE_PORT"); envPort != "" {
 			if p, err := strconv.Atoi(envPort); err == nil {
 				*port = p
@@ -313,23 +313,27 @@ func main() {
 		return nil
 	}
 
-	// Создаем сервис обнаружения
+	// 0. Создаем контекст для управления жизненным циклом ноды
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 1. Сначала запускаем TCP сервер, чтобы он занял динамический порт
+	server := network.NewServer(*name, *port, handleIncomingMessage)
+	if err := server.Start(ctx); err != nil {
+		log.Fatalf("[Network] Failed to start server: %v", err)
+	}
+
+	// 2. Вытаскиваем реальный порт, который выдала ОС
+	*port = server.Port // или server.ServerPort, в зависимости от твоей структуры
+
+	// 3. Создаем сервис обнаружения и передаем ему УЖЕ РЕАЛЬНЫЙ порт
 	discService := discovery.NewDiscoveryService(*name, *port)
 
 	// Канал для найденных пиров
 	peerChan := make(chan discovery.Peer)
-	ctx, cancel := context.WithCancel(context.Background())
 
-	// Запускаем сервис обнаружения (вещание + прослушивание) в фоне
+	// 4. Запускаем сервис обнаружения (вещание + прослушивание) в фоне
 	go discService.Start(ctx, peerChan)
-
-	// Запускаем TCP сервер для сообщений
-	server := network.NewServer(*name, *port, handleIncomingMessage)
-	go func() {
-		if err := server.Start(ctx); err != nil {
-			log.Fatalf("[Network] Failed to start server: %v", err)
-		}
-	}()
 
 	// Периодически выводим список активных узлов для наглядности (можно убрать в финальной версии)
 	// go func() {
@@ -355,37 +359,30 @@ func main() {
 
 	time.Sleep(1 * time.Second)
 
-	// Слушаем найденных соседей и обновляем реестр с уведомлением
+	// Чтение найденных пиров из Discovery
 	go func() {
-		knownPeers := make(map[string]string)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case peer, ok := <-peerChan:
-				if !ok {
-					return
-				}
-				if _, exists := knownPeers[peer.ID]; !exists {
-					fmt.Printf("\r[SYSTEM]: New peer joined: %s (%s:%d)\nyou: ", peer.Name, peer.IP, peer.Port)
-					knownPeers[peer.ID] = peer.Name
-				}
-				registry.Update(peer)
+		knownPeers := make(map[string]bool)
+		for peer := range peerChan {
+			// Если имя совпадает с нашим, но IP или Порт отличаются — это клон!
+			if peer.Name == *name && (peer.IP != "127.0.0.1" || peer.Port != *port) {
+				fmt.Println("\n-----------------------------------------------------")
+				log.Printf("[КРИТИЧЕСКАЯ ОШИБКА] Имя '%s' уже занято другим участником в сети (%s:%d)!", *name, peer.IP, peer.Port)
+				fmt.Println("Пожалуйста, перезапустите приложение с другим именем.")
+				fmt.Println("-----------------------------------------------------")
 
-			case <-time.After(2 * time.Second):
-				activePeers := registry.GetActivePeers()
-				activeMap := make(map[string]bool)
-				for _, p := range activePeers {
-					activeMap[p.ID] = true
-				}
-
-				for id, name := range knownPeers {
-					if !activeMap[id] {
-						fmt.Printf("\r[SYSTEM]: %s has left the network\nyou:  ", name)
-						delete(knownPeers, id)
-					}
-				}
+				// Красиво завершаем работу текущего процесса
+				os.Exit(1)
 			}
+
+			// Сообщаем о новом пире только один раз
+			peerKey := fmt.Sprintf("%s:%d", peer.IP, peer.Port)
+			if !knownPeers[peerKey] {
+				fmt.Printf("\r[SYSTEM]: New peer joined: %s (%s:%d)\nyou: ", peer.Name, peer.IP, peer.Port)
+				knownPeers[peerKey] = true
+			}
+
+			// Если всё ок, добавляем пира в реестр
+			registry.Update(peer)
 		}
 	}()
 

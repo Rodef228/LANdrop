@@ -39,5 +39,7 @@ cu-bridge
 cu-bridge.exe
 cu-bridge-linux
 cu-bridge-mac
+cu_mesh_ubuntu
+mesh_android
 builds/
 storage/

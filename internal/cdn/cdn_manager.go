@@ -218,3 +218,10 @@ func (cm *CDNManager) ReAnnounce(fileID string, registryPeers []protocol.PeerInf
 		}
 	}
 }
+
+// UpdateNodeName обновляет имя узла (при коллизии имён в сети).
+func (cm *CDNManager) UpdateNodeName(newName string) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cm.NodeID = newName
+}

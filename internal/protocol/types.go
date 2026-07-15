@@ -5,6 +5,7 @@ import (
 	"fmt"
 )
 
+// MessageType — тип сообщения.
 type MessageType string
 
 const (
@@ -13,12 +14,13 @@ const (
 	TypeChat         MessageType = "CHAT"
 	TypeFileRequest  MessageType = "FILE_REQ"
 	TypeFileAck      MessageType = "FILE_ACK"
-	TypeFileAnnounce MessageType = "FILE_ANN"   // Анонс файла
-	TypeChunkRequest MessageType = "CHUNK_REQ"  // Запрос чанка
-	TypeFileChunk    MessageType = "FILE_CHUNK" // Сами данные чанка
-	TypeCatalog      MessageType = "CATALOG"    // Полный каталог файлов в сети
+	TypeFileAnnounce MessageType = "FILE_ANN"
+	TypeChunkRequest MessageType = "CHUNK_REQ"
+	TypeFileChunk    MessageType = "FILE_CHUNK"
+	TypeCatalog      MessageType = "CATALOG"
 )
 
+// Header — заголовок сообщения.
 type Header struct {
 	MessageType MessageType `json:"type"`
 	SenderID    string      `json:"sender_id"`
@@ -26,36 +28,40 @@ type Header struct {
 	RecipientID string      `json:"recipient_id"`
 }
 
+// PingMessage — служебный ping.
 type PingMessage struct {
 	Header
 	Timestamp int64 `json:"timestamp"`
 }
 
+// ChatMessage — сообщение чата.
 type ChatMessage struct {
 	Message string `json:"message"`
 }
 
-// Структуры для полезной нагрузки CDN
+// FileAnnouncePayload — анонс файла.
 type FileAnnouncePayload struct {
 	FileID      string   `json:"file_id"`
 	FileName    string   `json:"file_name"`
 	FileSize    int64    `json:"file_size"`
 	TotalChunks uint32   `json:"total_chunks"`
-	Chunks      []uint32 `json:"chunks"` // Список имеющихся у пира кусков
+	Chunks      []uint32 `json:"chunks"`
 }
 
+// ChunkRequestPayload — запрос чанка.
 type ChunkRequestPayload struct {
 	FileID     string `json:"file_id"`
 	ChunkIndex uint32 `json:"chunk_index"`
 }
 
+// ChunkPayload — данные чанка.
 type ChunkPayload struct {
 	FileID     string `json:"file_id"`
 	ChunkIndex uint32 `json:"chunk_index"`
 	Data       []byte `json:"data"`
 }
 
-// PeerInfo — информация о пире для ре-анонса и других операций.
+// PeerInfo — информация о пире.
 type PeerInfo struct {
 	ID   string
 	IP   string
@@ -63,20 +69,21 @@ type PeerInfo struct {
 	Name string
 }
 
-// CatalogEntry — одна запись в распределённом каталоге файлов.
+// CatalogEntry — запись в каталоге файлов.
 type CatalogEntry struct {
 	FileID      string              `json:"file_id"`
 	FileName    string              `json:"file_name"`
 	FileSize    int64               `json:"file_size"`
 	TotalChunks uint32              `json:"total_chunks"`
-	Owners      map[string][]uint32 `json:"owners"` // peerID -> chunkIndices
+	Owners      map[string][]uint32 `json:"owners"`
 }
 
-// CatalogPayload — полезная нагрузка для TypeCatalog.
+// CatalogPayload — полезная нагрузка TypeCatalog.
 type CatalogPayload struct {
 	Entries []CatalogEntry `json:"entries"`
 }
 
+// Encode упаковывает заголовок и payload в JSON.
 func Encode(header Header, payload interface{}) ([]byte, error) {
 	temp := struct {
 		Header
@@ -88,6 +95,7 @@ func Encode(header Header, payload interface{}) ([]byte, error) {
 	return json.Marshal(temp)
 }
 
+// Decode разбирает JSON-сообщение.
 func Decode(data []byte) (Header, map[string]interface{}, error) {
 	var temp struct {
 		Header
@@ -99,7 +107,6 @@ func Decode(data []byte) (Header, map[string]interface{}, error) {
 	}
 
 	var payloadMap map[string]interface{}
-	// Безопасная проверка RawMessage
 	if len(temp.Payload) > 0 && string(temp.Payload) != "null" {
 		err = json.Unmarshal(temp.Payload, &payloadMap)
 		if err != nil {

@@ -3,45 +3,35 @@ package cdn
 import (
 	"sync"
 
-	"mesh-cu/internal/protocol"
+	"mesh-cu/internal/helpers"
+	"mesh-cu/internal/types"
 )
 
-type FileInfo struct {
-	ID           string
-	Name         string
-	OriginalPath string
-	Size         int64
-	TotalChunks  uint32
-	OwnedChunks  map[uint32]bool
-}
-
+// CDNManager — управляет файлами: регистрация, анонсы, отслеживание владельцев чанков.
 type CDNManager struct {
-	fm        *FileManager
+	fm        *helpers.FileManager
 	mu        sync.RWMutex
-	Files     map[string]*FileInfo           // My files (including partially downloaded)
-	PeerFiles map[string]map[string][]uint32 // fileID -> peerID -> chunkIndices
+	Files     map[string]*types.FileInfo
+	PeerFiles map[string]map[string][]uint32
 	NodeID    string
 }
 
-func NewCDNManager(nodeID string, fm *FileManager) *CDNManager {
+// NewCDNManager создаёт CDNManager.
+func NewCDNManager(nodeID string, fm *helpers.FileManager) *CDNManager {
 	return &CDNManager{
 		fm:        fm,
-		Files:     make(map[string]*FileInfo),
+		Files:     make(map[string]*types.FileInfo),
 		PeerFiles: make(map[string]map[string][]uint32),
 		NodeID:    nodeID,
 	}
 }
 
 // HandleAnnounce обрабатывает анонс файла от пира.
-// Создаёт FileInfo если его ещё нет, и сохраняет какие чанки есть у отправителя.
-// ВАЖНО: не вызывать при уже захваченном Lock()!
-func (cm *CDNManager) HandleAnnounce(payload protocol.FileAnnouncePayload, senderID string) {
+func (cm *CDNManager) HandleAnnounce(payload types.FileAnnouncePayload, senderID string) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	// Создаём FileInfo если его ещё нет (первый раз слышим об этом файле)
 	if _, exists := cm.Files[payload.FileID]; !exists {
-		// Если список чанков пустой — считаем что пир владеет всеми чанками
 		owned := make(map[uint32]bool)
 		if len(payload.Chunks) == 0 {
 			for i := uint32(0); i < payload.TotalChunks; i++ {
@@ -53,7 +43,7 @@ func (cm *CDNManager) HandleAnnounce(payload protocol.FileAnnouncePayload, sende
 			}
 		}
 
-		cm.Files[payload.FileID] = &FileInfo{
+		cm.Files[payload.FileID] = &types.FileInfo{
 			ID:          payload.FileID,
 			Name:        payload.FileName,
 			Size:        payload.FileSize,
@@ -62,7 +52,6 @@ func (cm *CDNManager) HandleAnnounce(payload protocol.FileAnnouncePayload, sende
 		}
 	}
 
-	// Сохраняем какие чанки есть у отправителя
 	if _, ok := cm.PeerFiles[payload.FileID]; !ok {
 		cm.PeerFiles[payload.FileID] = make(map[string][]uint32)
 	}
@@ -70,7 +59,6 @@ func (cm *CDNManager) HandleAnnounce(payload protocol.FileAnnouncePayload, sende
 	if len(payload.Chunks) > 0 {
 		cm.PeerFiles[payload.FileID][senderID] = payload.Chunks
 	} else {
-		// Если список чанков не передан — считаем что у пира есть все
 		allChunks := make([]uint32, payload.TotalChunks)
 		for i := uint32(0); i < payload.TotalChunks; i++ {
 			allChunks[i] = i
@@ -98,15 +86,15 @@ func (cm *CDNManager) GetChunkOwners(fileID string, chunkIndex uint32) []string 
 	return owners
 }
 
-// RegisterLocalFile регистрирует локальный файл (которым мы владеем полностью).
-func (cm *CDNManager) RegisterLocalFile(fileID, name string, size int64, originalPath string) *FileInfo {
-	totalChunks := uint32((size + ChunkSize - 1) / ChunkSize)
+// RegisterLocalFile регистрирует локальный файл.
+func (cm *CDNManager) RegisterLocalFile(fileID, name string, size int64, originalPath string) *types.FileInfo {
+	totalChunks := uint32((size + helpers.ChunkSize - 1) / helpers.ChunkSize)
 	owned := make(map[uint32]bool)
 	for i := uint32(0); i < totalChunks; i++ {
 		owned[i] = true
 	}
 
-	fi := &FileInfo{
+	fi := &types.FileInfo{
 		ID:           fileID,
 		Name:         name,
 		OriginalPath: originalPath,
@@ -122,7 +110,7 @@ func (cm *CDNManager) RegisterLocalFile(fileID, name string, size int64, origina
 	return fi
 }
 
-// GetOwnedChunks возвращает список индексов чанков, которыми мы владеем.
+// GetOwnedChunks возвращает индексы чанков, которыми мы владеем.
 func (cm *CDNManager) GetOwnedChunks(fileID string) []uint32 {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
@@ -141,8 +129,8 @@ func (cm *CDNManager) GetOwnedChunks(fileID string) []uint32 {
 	return chunks
 }
 
-// GetFileInfo возвращает копию информации о файле (или nil если файл неизвестен).
-func (cm *CDNManager) GetFileInfo(fileID string) *FileInfo {
+// GetFileInfo возвращает копию FileInfo (или nil).
+func (cm *CDNManager) GetFileInfo(fileID string) *types.FileInfo {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
@@ -151,8 +139,7 @@ func (cm *CDNManager) GetFileInfo(fileID string) *FileInfo {
 		return nil
 	}
 
-	// Возвращаем копию
-	info := &FileInfo{
+	info := &types.FileInfo{
 		ID:           fi.ID,
 		Name:         fi.Name,
 		OriginalPath: fi.OriginalPath,
@@ -166,7 +153,7 @@ func (cm *CDNManager) GetFileInfo(fileID string) *FileInfo {
 	return info
 }
 
-// MarkChunkOwned отмечает чанк как принадлежащий нам (после скачивания).
+// MarkChunkOwned отмечает чанк как принадлежащий нам.
 func (cm *CDNManager) MarkChunkOwned(fileID string, chunkIdx uint32) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -181,8 +168,8 @@ func (cm *CDNManager) MarkChunkOwned(fileID string, chunkIdx uint32) {
 	fi.OwnedChunks[chunkIdx] = true
 }
 
-// ReAnnounce отправляет анонс файла всем активным пирам с обновлённым списком чанков.
-func (cm *CDNManager) ReAnnounce(fileID string, registryPeers []protocol.PeerInfo, sendFn func(peerIP string, peerPort int, data []byte) error) {
+// ReAnnounce отправляет анонс файла всем активным пирам.
+func (cm *CDNManager) ReAnnounce(fileID string, registryPeers []types.PeerInfo, sendFn func(peerIP string, peerPort int, data []byte) error) {
 	cm.mu.RLock()
 	fi, ok := cm.Files[fileID]
 	if !ok {
@@ -193,13 +180,13 @@ func (cm *CDNManager) ReAnnounce(fileID string, registryPeers []protocol.PeerInf
 
 	chunks := cm.GetOwnedChunks(fileID)
 
-	header := protocol.Header{
-		MessageType: protocol.TypeFileAnnounce,
+	header := types.Header{
+		MessageType: types.TypeFileAnnounce,
 		SenderID:    cm.NodeID,
 		SenderName:  cm.NodeID,
 	}
 
-	payload := protocol.FileAnnouncePayload{
+	payload := types.FileAnnouncePayload{
 		FileID:      fileID,
 		FileName:    fi.Name,
 		FileSize:    fi.Size,
@@ -207,7 +194,7 @@ func (cm *CDNManager) ReAnnounce(fileID string, registryPeers []protocol.PeerInf
 		Chunks:      chunks,
 	}
 
-	encoded, err := protocol.Encode(header, payload)
+	encoded, err := helpers.Encode(header, payload)
 	if err != nil {
 		return
 	}
@@ -219,7 +206,7 @@ func (cm *CDNManager) ReAnnounce(fileID string, registryPeers []protocol.PeerInf
 	}
 }
 
-// UpdateNodeName обновляет имя узла (при коллизии имён в сети).
+// UpdateNodeName обновляет имя узла.
 func (cm *CDNManager) UpdateNodeName(newName string) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()

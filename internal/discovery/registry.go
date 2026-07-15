@@ -3,31 +3,27 @@ package discovery
 import (
 	"sync"
 	"time"
-)
 
-type registeredPeer struct {
-	Peer
-	LastSeen time.Time
-}
+	"mesh-cu/internal/types"
+)
 
 // PeerRegistry хранит список активных узлов в сети.
 type PeerRegistry struct {
 	mu          sync.RWMutex
-	peers       map[string]registeredPeer
-	onPeerLeave func(peerID string) // callback при удалении пира
+	peers       map[string]types.RegisteredPeer
+	onPeerLeave func(peerID string)
 }
 
-// NewPeerRegistry создает новый экземпляр реестра и запускает очистку.
+// NewPeerRegistry создаёт реестр и запускает фоновую очистку.
 func NewPeerRegistry() *PeerRegistry {
 	r := &PeerRegistry{
-		peers: make(map[string]registeredPeer),
+		peers: make(map[string]types.RegisteredPeer),
 	}
 	go r.cleanupLoop()
 	return r
 }
 
-// SetOnPeerLeave устанавливает callback, который вызывается при удалении пира
-// из реестра (по таймауту 30 сек).
+// SetOnPeerLeave устанавливает callback при выходе пира из сети.
 func (r *PeerRegistry) SetOnPeerLeave(fn func(peerID string)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -35,28 +31,27 @@ func (r *PeerRegistry) SetOnPeerLeave(fn func(peerID string)) {
 }
 
 // Update добавляет или обновляет информацию об узле.
-func (r *PeerRegistry) Update(peer Peer) {
+func (r *PeerRegistry) Update(peer types.Peer) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.peers[peer.ID] = registeredPeer{
+	r.peers[peer.ID] = types.RegisteredPeer{
 		Peer:     peer,
 		LastSeen: time.Now(),
 	}
 }
 
-// GetActivePeers возвращает список всех текущих активных узлов.
-func (r *PeerRegistry) GetActivePeers() []Peer {
+// GetActivePeers возвращает список активных узлов.
+func (r *PeerRegistry) GetActivePeers() []types.Peer {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	active := make([]Peer, 0, len(r.peers))
+	active := make([]types.Peer, 0, len(r.peers))
 	for _, p := range r.peers {
 		active = append(active, p.Peer)
 	}
 	return active
 }
 
-// cleanupLoop раз в 10 секунд запускает очистку устаревших узлов.
 func (r *PeerRegistry) cleanupLoop() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -75,8 +70,6 @@ func (r *PeerRegistry) cleanup() {
 	for id, p := range r.peers {
 		if now.Sub(p.LastSeen) > 30*time.Second {
 			delete(r.peers, id)
-			// Вызываем callback (если установлен) в горутине,
-			// чтобы не блокировать cleanup и избежать deadlock'ов
 			if r.onPeerLeave != nil {
 				go r.onPeerLeave(id)
 			}

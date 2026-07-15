@@ -1,18 +1,19 @@
 package catalog
 
 import (
-	"mesh-cu/internal/protocol"
 	"testing"
+
+	"mesh-cu/internal/types"
 )
 
 func TestNewCatalog(t *testing.T) {
 	c := NewCatalog()
 	if c == nil {
-		t.Fatal("NewCatalog() returned nil")
+		t.Fatal("NewCatalog() вернул nil")
 	}
 	entries := c.GetEntries()
 	if len(entries) != 0 {
-		t.Errorf("Expected empty catalog, got %d entries", len(entries))
+		t.Errorf("Ожидался пустой каталог, получено %d записей", len(entries))
 	}
 }
 
@@ -22,26 +23,26 @@ func TestAddOrUpdate_NewFile(t *testing.T) {
 
 	entry := c.GetEntry("file1")
 	if entry == nil {
-		t.Fatal("Expected entry for file1, got nil")
+		t.Fatal("Ожидалась запись для file1, получен nil")
 	}
 	if entry.FileName != "photo.jpg" {
-		t.Errorf("Expected FileName=photo.jpg, got %s", entry.FileName)
+		t.Errorf("Ожидалось FileName=photo.jpg, получено %s", entry.FileName)
 	}
 	if entry.FileSize != 1000 {
-		t.Errorf("Expected FileSize=1000, got %d", entry.FileSize)
+		t.Errorf("Ожидалось FileSize=1000, получено %d", entry.FileSize)
 	}
 	if entry.TotalChunks != 10 {
-		t.Errorf("Expected TotalChunks=10, got %d", entry.TotalChunks)
+		t.Errorf("Ожидалось TotalChunks=10, получено %d", entry.TotalChunks)
 	}
 	if len(entry.Owners) != 1 {
-		t.Errorf("Expected 1 owner, got %d", len(entry.Owners))
+		t.Errorf("Ожидался 1 владелец, получено %d", len(entry.Owners))
 	}
 	chunks, ok := entry.Owners["alice"]
 	if !ok {
-		t.Fatal("Expected alice in owners")
+		t.Fatal("Ожидалась alice в списке владельцев")
 	}
 	if len(chunks) != 3 {
-		t.Errorf("Expected 3 chunks for alice, got %d", len(chunks))
+		t.Errorf("Ожидалось 3 чанка для alice, получено %d", len(chunks))
 	}
 }
 
@@ -51,18 +52,18 @@ func TestAddOrUpdate_EmptyChunksMeansAll(t *testing.T) {
 
 	entry := c.GetEntry("file1")
 	if entry == nil {
-		t.Fatal("Expected entry for file1")
+		t.Fatal("Ожидалась запись для file1")
 	}
 	chunks, ok := entry.Owners["alice"]
 	if !ok {
-		t.Fatal("Expected alice in owners")
+		t.Fatal("Ожидалась alice в списке владельцев")
 	}
 	if len(chunks) != 8 {
-		t.Errorf("Expected 8 chunks (all), got %d", len(chunks))
+		t.Errorf("Ожидалось 8 чанков (все), получено %d", len(chunks))
 	}
 	for i := uint32(0); i < 8; i++ {
 		if chunks[i] != i {
-			t.Errorf("Expected chunks[%d]=%d, got %d", i, i, chunks[i])
+			t.Errorf("Ожидалось chunks[%d]=%d, получено %d", i, i, chunks[i])
 		}
 	}
 }
@@ -74,34 +75,33 @@ func TestAddOrUpdate_SecondPeer(t *testing.T) {
 
 	entry := c.GetEntry("file1")
 	if entry == nil {
-		t.Fatal("Expected entry for file1")
+		t.Fatal("Ожидалась запись для file1")
 	}
 	if len(entry.Owners) != 2 {
-		t.Errorf("Expected 2 owners, got %d", len(entry.Owners))
+		t.Errorf("Ожидалось 2 владельца, получено %d", len(entry.Owners))
 	}
 	if len(entry.Owners["alice"]) != 3 {
-		t.Errorf("Expected 3 chunks for alice, got %d", len(entry.Owners["alice"]))
+		t.Errorf("Ожидалось 3 чанка для alice, получено %d", len(entry.Owners["alice"]))
 	}
 	if len(entry.Owners["bob"]) != 3 {
-		t.Errorf("Expected 3 chunks for bob, got %d", len(entry.Owners["bob"]))
+		t.Errorf("Ожидалось 3 чанка для bob, получено %d", len(entry.Owners["bob"]))
 	}
 }
 
 func TestAddOrUpdate_UpdateExistingPeer(t *testing.T) {
 	c := NewCatalog()
 	c.AddOrUpdate("file1", "alice", "photo.jpg", 1000, 10, []uint32{0, 1, 2})
-	// Alice now has more chunks
 	c.AddOrUpdate("file1", "alice", "photo.jpg", 1000, 10, []uint32{0, 1, 2, 3, 4, 5})
 
 	entry := c.GetEntry("file1")
 	if entry == nil {
-		t.Fatal("Expected entry for file1")
+		t.Fatal("Ожидалась запись для file1")
 	}
 	if len(entry.Owners) != 1 {
-		t.Errorf("Expected 1 owner, got %d", len(entry.Owners))
+		t.Errorf("Ожидался 1 владелец, получено %d", len(entry.Owners))
 	}
 	if len(entry.Owners["alice"]) != 6 {
-		t.Errorf("Expected 6 chunks for alice, got %d", len(entry.Owners["alice"]))
+		t.Errorf("Ожидалось 6 чанков для alice, получено %d", len(entry.Owners["alice"]))
 	}
 }
 
@@ -112,16 +112,16 @@ func TestAddOrUpdate_MultipleFiles(t *testing.T) {
 
 	entries := c.GetEntries()
 	if len(entries) != 2 {
-		t.Errorf("Expected 2 entries, got %d", len(entries))
+		t.Errorf("Ожидалось 2 записи, получено %d", len(entries))
 	}
 
 	e1 := c.GetEntry("file1")
 	if e1 == nil || e1.FileName != "photo.jpg" {
-		t.Errorf("Expected file1=photo.jpg, got %v", e1)
+		t.Errorf("Ожидалось file1=photo.jpg, получено %v", e1)
 	}
 	e2 := c.GetEntry("file2")
 	if e2 == nil || e2.FileName != "doc.pdf" {
-		t.Errorf("Expected file2=doc.pdf, got %v", e2)
+		t.Errorf("Ожидалось file2=doc.pdf, получено %v", e2)
 	}
 }
 
@@ -131,13 +131,12 @@ func TestRemovePeer_SingleFile(t *testing.T) {
 
 	affected := c.RemovePeer("alice")
 	if len(affected) != 1 || affected[0] != "file1" {
-		t.Errorf("Expected affected=[file1], got %v", affected)
+		t.Errorf("Ожидалось affected=[file1], получено %v", affected)
 	}
 
-	// Entry should be deleted (no owners left)
 	entry := c.GetEntry("file1")
 	if entry != nil {
-		t.Errorf("Expected entry to be deleted, got %v", entry)
+		t.Errorf("Ожидалось удаление записи, получено %v", entry)
 	}
 }
 
@@ -149,19 +148,17 @@ func TestRemovePeer_MultipleFiles(t *testing.T) {
 
 	affected := c.RemovePeer("alice")
 	if len(affected) != 2 {
-		t.Errorf("Expected 2 affected files, got %d: %v", len(affected), affected)
+		t.Errorf("Ожидалось 2 затронутых файла, получено %d: %v", len(affected), affected)
 	}
 
-	// file1 and file2 should be gone (only alice owned them)
 	if c.GetEntry("file1") != nil {
-		t.Error("Expected file1 to be deleted")
+		t.Error("Ожидалось удаление file1")
 	}
 	if c.GetEntry("file2") != nil {
-		t.Error("Expected file2 to be deleted")
+		t.Error("Ожидалось удаление file2")
 	}
-	// file3 should still exist (bob owns it)
 	if c.GetEntry("file3") == nil {
-		t.Error("Expected file3 to still exist")
+		t.Error("Ожидалось, что file3 останется")
 	}
 }
 
@@ -172,19 +169,18 @@ func TestRemovePeer_OnlyFromOneFile(t *testing.T) {
 
 	affected := c.RemovePeer("alice")
 	if len(affected) != 1 || affected[0] != "file1" {
-		t.Errorf("Expected affected=[file1], got %v", affected)
+		t.Errorf("Ожидалось affected=[file1], получено %v", affected)
 	}
 
-	// file1 should still exist (bob still owns chunks)
 	entry := c.GetEntry("file1")
 	if entry == nil {
-		t.Fatal("Expected file1 to still exist")
+		t.Fatal("Ожидалось, что file1 останется")
 	}
 	if len(entry.Owners) != 1 {
-		t.Errorf("Expected 1 owner left, got %d", len(entry.Owners))
+		t.Errorf("Ожидался 1 оставшийся владелец, получено %d", len(entry.Owners))
 	}
 	if _, ok := entry.Owners["bob"]; !ok {
-		t.Error("Expected bob to still be an owner")
+		t.Error("Ожидалось, что bob останется владельцем")
 	}
 }
 
@@ -194,12 +190,11 @@ func TestRemovePeer_NonExistent(t *testing.T) {
 
 	affected := c.RemovePeer("nonexistent")
 	if len(affected) != 0 {
-		t.Errorf("Expected empty affected list, got %v", affected)
+		t.Errorf("Ожидался пустой список, получено %v", affected)
 	}
 
-	// file1 should still exist
 	if c.GetEntry("file1") == nil {
-		t.Error("Expected file1 to still exist")
+		t.Error("Ожидалось, что file1 останется")
 	}
 }
 
@@ -209,23 +204,21 @@ func TestGetEntries_ReturnsCopy(t *testing.T) {
 
 	entries := c.GetEntries()
 	if len(entries) != 1 {
-		t.Fatalf("Expected 1 entry, got %d", len(entries))
+		t.Fatalf("Ожидалась 1 запись, получено %d", len(entries))
 	}
 
-	// Modify the returned entry
 	entries[0].FileName = "hacked.jpg"
 	entries[0].Owners["alice"] = []uint32{99}
 
-	// Original should be unchanged
 	original := c.GetEntry("file1")
 	if original == nil {
-		t.Fatal("Expected original entry")
+		t.Fatal("Ожидалась оригинальная запись")
 	}
 	if original.FileName != "photo.jpg" {
-		t.Errorf("Original FileName was modified! Expected photo.jpg, got %s", original.FileName)
+		t.Errorf("Оригинал изменился! Ожидалось photo.jpg, получено %s", original.FileName)
 	}
 	if original.Owners["alice"][0] != 0 {
-		t.Errorf("Original chunks were modified! Expected [0 1 2], got %v", original.Owners["alice"])
+		t.Errorf("Оригинальные чанки изменились! Ожидалось [0 1 2], получено %v", original.Owners["alice"])
 	}
 }
 
@@ -233,7 +226,7 @@ func TestGetEntry_NonExistent(t *testing.T) {
 	c := NewCatalog()
 	entry := c.GetEntry("nonexistent")
 	if entry != nil {
-		t.Errorf("Expected nil for nonexistent file, got %v", entry)
+		t.Errorf("Ожидался nil для несуществующего файла, получено %v", entry)
 	}
 }
 
@@ -243,23 +236,21 @@ func TestGetEntry_ReturnsCopy(t *testing.T) {
 
 	entry := c.GetEntry("file1")
 	if entry == nil {
-		t.Fatal("Expected entry")
+		t.Fatal("Ожидалась запись")
 	}
 
-	// Modify the returned entry
 	entry.FileName = "hacked.jpg"
 	entry.Owners["alice"] = []uint32{99}
 
-	// Get again — should be unchanged
 	entry2 := c.GetEntry("file1")
 	if entry2.FileName != "photo.jpg" {
-		t.Errorf("Original FileName was modified! Expected photo.jpg, got %s", entry2.FileName)
+		t.Errorf("Оригинал изменился! Ожидалось photo.jpg, получено %s", entry2.FileName)
 	}
 }
 
 func TestMerge_NewEntries(t *testing.T) {
 	c := NewCatalog()
-	entries := []protocol.CatalogEntry{
+	entries := []types.CatalogEntry{
 		{
 			FileID:      "file1",
 			FileName:    "photo.jpg",
@@ -283,13 +274,13 @@ func TestMerge_NewEntries(t *testing.T) {
 	c.Merge(entries)
 
 	if len(c.GetEntries()) != 2 {
-		t.Errorf("Expected 2 entries after merge, got %d", len(c.GetEntries()))
+		t.Errorf("Ожидалось 2 записи после merge, получено %d", len(c.GetEntries()))
 	}
 	if c.GetEntry("file1") == nil {
-		t.Error("Expected file1 after merge")
+		t.Error("Ожидался file1 после merge")
 	}
 	if c.GetEntry("file2") == nil {
-		t.Error("Expected file2 after merge")
+		t.Error("Ожидался file2 после merge")
 	}
 }
 
@@ -297,8 +288,7 @@ func TestMerge_UpdatesExisting(t *testing.T) {
 	c := NewCatalog()
 	c.AddOrUpdate("file1", "alice", "photo.jpg", 1000, 10, []uint32{0, 1})
 
-	// Merge with updated info from bob
-	entries := []protocol.CatalogEntry{
+	entries := []types.CatalogEntry{
 		{
 			FileID:      "file1",
 			FileName:    "photo.jpg",
@@ -313,34 +303,34 @@ func TestMerge_UpdatesExisting(t *testing.T) {
 
 	entry := c.GetEntry("file1")
 	if entry == nil {
-		t.Fatal("Expected file1")
+		t.Fatal("Ожидался file1")
 	}
 	if len(entry.Owners) != 2 {
-		t.Errorf("Expected 2 owners after merge, got %d", len(entry.Owners))
+		t.Errorf("Ожидалось 2 владельца после merge, получено %d", len(entry.Owners))
 	}
 	if _, ok := entry.Owners["alice"]; !ok {
-		t.Error("Expected alice to still be an owner")
+		t.Error("Ожидалось, что alice останется владельцем")
 	}
 	if _, ok := entry.Owners["bob"]; !ok {
-		t.Error("Expected bob to be an owner after merge")
+		t.Error("Ожидалось, что bob появится как владелец")
 	}
 }
 
 func TestMerge_EmptyOwnersSkipped(t *testing.T) {
 	c := NewCatalog()
-	entries := []protocol.CatalogEntry{
+	entries := []types.CatalogEntry{
 		{
 			FileID:      "file1",
 			FileName:    "photo.jpg",
 			FileSize:    1000,
 			TotalChunks: 10,
-			Owners:      map[string][]uint32{}, // empty owners
+			Owners:      map[string][]uint32{},
 		},
 	}
 	c.Merge(entries)
 
 	if c.GetEntry("file1") != nil {
-		t.Error("Expected file1 to NOT be added (empty owners)")
+		t.Error("Ожидалось, что file1 НЕ добавится (пустые владельцы)")
 	}
 }
 
@@ -348,8 +338,7 @@ func TestMerge_OverwritesMetadata(t *testing.T) {
 	c := NewCatalog()
 	c.AddOrUpdate("file1", "alice", "old_name.jpg", 100, 5, []uint32{0})
 
-	// Merge with updated metadata
-	entries := []protocol.CatalogEntry{
+	entries := []types.CatalogEntry{
 		{
 			FileID:      "file1",
 			FileName:    "new_name.jpg",
@@ -364,13 +353,13 @@ func TestMerge_OverwritesMetadata(t *testing.T) {
 
 	entry := c.GetEntry("file1")
 	if entry.FileName != "new_name.jpg" {
-		t.Errorf("Expected FileName=new_name.jpg, got %s", entry.FileName)
+		t.Errorf("Ожидалось FileName=new_name.jpg, получено %s", entry.FileName)
 	}
 	if entry.FileSize != 200 {
-		t.Errorf("Expected FileSize=200, got %d", entry.FileSize)
+		t.Errorf("Ожидалось FileSize=200, получено %d", entry.FileSize)
 	}
 	if entry.TotalChunks != 10 {
-		t.Errorf("Expected TotalChunks=10, got %d", entry.TotalChunks)
+		t.Errorf("Ожидалось TotalChunks=10, получено %d", entry.TotalChunks)
 	}
 }
 
@@ -380,13 +369,13 @@ func TestHasPeer(t *testing.T) {
 	c.AddOrUpdate("file2", "bob", "doc.pdf", 2000, 20, []uint32{0, 1, 2})
 
 	if !c.HasPeer("alice") {
-		t.Error("Expected HasPeer(alice)=true")
+		t.Error("Ожидалось HasPeer(alice)=true")
 	}
 	if !c.HasPeer("bob") {
-		t.Error("Expected HasPeer(bob)=true")
+		t.Error("Ожидалось HasPeer(bob)=true")
 	}
 	if c.HasPeer("charlie") {
-		t.Error("Expected HasPeer(charlie)=false")
+		t.Error("Ожидалось HasPeer(charlie)=false")
 	}
 }
 
@@ -396,7 +385,7 @@ func TestHasPeer_AfterRemove(t *testing.T) {
 	c.RemovePeer("alice")
 
 	if c.HasPeer("alice") {
-		t.Error("Expected HasPeer(alice)=false after RemovePeer")
+		t.Error("Ожидалось HasPeer(alice)=false после RemovePeer")
 	}
 }
 
@@ -404,7 +393,6 @@ func TestConcurrentAccess(t *testing.T) {
 	c := NewCatalog()
 	done := make(chan bool)
 
-	// Concurrent writes
 	go func() {
 		for i := 0; i < 100; i++ {
 			c.AddOrUpdate("file1", "alice", "photo.jpg", 1000, 10, []uint32{0, 1, 2})
@@ -431,14 +419,12 @@ func TestConcurrentAccess(t *testing.T) {
 		done <- true
 	}()
 
-	// Wait for all goroutines
 	for i := 0; i < 4; i++ {
 		<-done
 	}
 
-	// Should not panic or deadlock
 	entry := c.GetEntry("file1")
 	if entry == nil {
-		t.Error("Expected file1 to exist after concurrent access")
+		t.Error("Ожидалось, что file1 существует после конкурентного доступа")
 	}
 }

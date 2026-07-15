@@ -8,19 +8,20 @@ import (
 	"net"
 	"time"
 
-	"mesh-cu/internal/protocol"
+	"mesh-cu/internal/helpers"
+	"mesh-cu/internal/types"
 )
 
-type MessageHandler func(conn net.Conn, senderID string, name string, messageType protocol.MessageType, payload map[string]interface{}) error
-
+// Server — TCP-сервер для приёма сообщений от пиров.
 type Server struct {
 	Port     int
 	NodeID   string
-	Handler  MessageHandler
+	Handler  types.MessageHandler
 	listener net.Listener
 }
 
-func NewServer(nodeID string, port int, handler MessageHandler) *Server {
+// NewServer создаёт TCP-сервер.
+func NewServer(nodeID string, port int, handler types.MessageHandler) *Server {
 	return &Server{
 		NodeID:  nodeID,
 		Port:    port,
@@ -28,6 +29,7 @@ func NewServer(nodeID string, port int, handler MessageHandler) *Server {
 	}
 }
 
+// Start запускает сервер на указанном порту (0 = динамический).
 func (s *Server) Start(ctx context.Context) error {
 	addr := fmt.Sprintf(":%d", s.Port)
 	listener, err := net.Listen("tcp", addr)
@@ -36,14 +38,9 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	s.listener = listener
 
-	// ВАЖНО: Вытаскиваем реальный порт, выделенный операционной системой
 	actualPort := s.listener.Addr().(*net.TCPAddr).Port
-
-	// Перезаписываем его в структуру сервера, чтобы Discovery и другие модули
-	// видели актуальный порт вместо 0
 	s.Port = actualPort
 
-	// Теперь лог честно покажет реальный порт (например, 49215)
 	log.Printf("[Network] TCP Server started on port %d", s.Port)
 
 	go func() {
@@ -53,9 +50,6 @@ func (s *Server) Start(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			default:
-				// Небольшой совет на будущее: если сервер останавливается,
-				// s.listener.Accept() вернет ошибку. Чтобы горутина не крутилась
-				// в бесконечном пустом цикле при закрытии, можно проверять контекст.
 				conn, err := s.listener.Accept()
 				if err != nil {
 					select {
@@ -72,6 +66,7 @@ func (s *Server) Start(ctx context.Context) error {
 	return nil
 }
 
+// Stop останавливает сервер.
 func (s *Server) Stop() {
 	if s.listener != nil {
 		s.listener.Close()
@@ -88,7 +83,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 
 	if len(data) > 0 {
-		header, payload, err := protocol.Decode(data)
+		header, payload, err := helpers.Decode(data)
 		if err != nil {
 			log.Printf("[Network Error] Failed to decode message: %v", err)
 			return
@@ -106,15 +101,4 @@ func (s *Server) handleConnection(conn net.Conn) {
 			}
 		}
 	}
-}
-
-func SendMessage(peerIP string, peerPort int, message []byte) error {
-	addr := net.JoinHostPort(peerIP, fmt.Sprintf("%d", peerPort))
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	_, err = conn.Write(message)
-	return err
 }

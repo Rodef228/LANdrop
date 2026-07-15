@@ -71,13 +71,11 @@ func TestEncodeDecode_FileAnnounce(t *testing.T) {
 		t.Errorf("Expected MessageType=FILE_ANN, got %s", decodedHeader.MessageType)
 	}
 
-	// Check payload fields
 	if fID, ok := decodedPayload["file_id"].(string); !ok || fID != "abc123" {
 		t.Errorf("Expected file_id=abc123, got %v", decodedPayload["file_id"])
 	}
 	if fName, ok := decodedPayload["file_name"].(string); !ok || fName != "photo.jpg" {
 		t.Errorf("Expected file_name=photo.jpg, got %v", decodedPayload["file_name"])
-
 	}
 	if fs, ok := decodedPayload["file_size"].(float64); !ok || int64(fs) != 1024 {
 		t.Errorf("Expected file_size=1024, got %v", decodedPayload["file_size"])
@@ -131,7 +129,6 @@ func TestEncodeDecode_CatalogPayload(t *testing.T) {
 		t.Errorf("Expected MessageType=CATALOG, got %s", decodedHeader.MessageType)
 	}
 
-	// Parse entries from decoded payload
 	entriesRaw, ok := decodedPayload["entries"].([]interface{})
 	if !ok {
 		t.Fatal("Expected entries in decoded payload")

@@ -1,4 +1,4 @@
-package cdn
+package helpers
 
 import (
 	"fmt"
@@ -6,19 +6,20 @@ import (
 	"path/filepath"
 )
 
-const ChunkSize = 64 * 1024 // 64 KB
+const ChunkSize = 64 * 1024 // 64 КБ
 
+// FileManager — чтение/запись чанков файлов на диск.
 type FileManager struct {
 	StoragePath string
 }
 
+// NewFileManager создаёт FileManager, при необходимости создавая каталог.
 func NewFileManager(storagePath string) (*FileManager, error) {
 	absPath, err := filepath.Abs(storagePath)
 	if err != nil {
 		return nil, err
 	}
 
-	// Добавляем проверку существования каталога и создание при необходимости
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
 		if err := os.MkdirAll(absPath, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create storage directory: %w", err)
@@ -30,6 +31,7 @@ func NewFileManager(storagePath string) (*FileManager, error) {
 	return &FileManager{StoragePath: absPath}, nil
 }
 
+// ReadChunkFromPath читает чанк из файла по произвольному пути.
 func (fm *FileManager) ReadChunkFromPath(path string, index uint32) ([]byte, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -46,11 +48,13 @@ func (fm *FileManager) ReadChunkFromPath(path string, index uint32) ([]byte, err
 	return data[:n], nil
 }
 
+// ReadChunk читает чанк из хранилища по имени файла.
 func (fm *FileManager) ReadChunk(fileName string, index uint32) ([]byte, error) {
 	path := filepath.Join(fm.StoragePath, fileName)
 	return fm.ReadChunkFromPath(path, index)
 }
 
+// WriteChunk записывает чанк в хранилище.
 func (fm *FileManager) WriteChunk(fileName string, index uint32, data []byte) error {
 	path := filepath.Join(fm.StoragePath, fileName)
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
@@ -67,6 +71,7 @@ func (fm *FileManager) WriteChunk(fileName string, index uint32, data []byte) er
 	return nil
 }
 
+// GetFileSize возвращает размер файла в хранилище.
 func (fm *FileManager) GetFileSize(fileName string) (int64, error) {
 	path := filepath.Join(fm.StoragePath, fileName)
 	fi, err := os.Stat(path)

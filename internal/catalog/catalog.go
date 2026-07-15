@@ -3,35 +3,31 @@ package catalog
 import (
 	"sync"
 
-	"mesh-cu/internal/protocol"
+	"mesh-cu/internal/types"
 )
 
-// Catalog — распределённый in-memory каталог файлов, известных в сети.
+// Catalog — распределённый in-memory каталог файлов.
 // Хранит информацию о том, у каких пиров какие файлы и чанки есть.
-// Все данные только в памяти, ничего не сохраняется на диск.
 type Catalog struct {
-	mu sync.RWMutex
-	// fileID -> CatalogEntry
-	entries map[string]*protocol.CatalogEntry
+	mu      sync.RWMutex
+	entries map[string]*types.CatalogEntry
 }
 
-// NewCatalog создаёт новый пустой каталог.
+// NewCatalog создаёт пустой каталог.
 func NewCatalog() *Catalog {
 	return &Catalog{
-		entries: make(map[string]*protocol.CatalogEntry),
+		entries: make(map[string]*types.CatalogEntry),
 	}
 }
 
-// AddOrUpdate добавляет или обновляет информацию о файле от конкретного пира.
-// Если файл уже есть — добавляет/обновляет чанки для этого пира.
-// Если пир уже есть — обновляет список его чанков.
+// AddOrUpdate добавляет или обновляет информацию о файле от пира.
 func (c *Catalog) AddOrUpdate(fileID, peerID string, fileName string, fileSize int64, totalChunks uint32, chunks []uint32) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	entry, exists := c.entries[fileID]
 	if !exists {
-		entry = &protocol.CatalogEntry{
+		entry = &types.CatalogEntry{
 			FileID:      fileID,
 			FileName:    fileName,
 			FileSize:    fileSize,
@@ -40,17 +36,14 @@ func (c *Catalog) AddOrUpdate(fileID, peerID string, fileName string, fileSize i
 		}
 		c.entries[fileID] = entry
 	} else {
-		// Обновляем метаданные (имя, размер) на случай если они изменились
 		entry.FileName = fileName
 		entry.FileSize = fileSize
 		entry.TotalChunks = totalChunks
 	}
 
-	// Сохраняем чанки пира
 	if len(chunks) > 0 {
 		entry.Owners[peerID] = chunks
 	} else {
-		// Если список чанков пуст — считаем что пир владеет всеми
 		allChunks := make([]uint32, totalChunks)
 		for i := uint32(0); i < totalChunks; i++ {
 			allChunks[i] = i
@@ -59,8 +52,7 @@ func (c *Catalog) AddOrUpdate(fileID, peerID string, fileName string, fileSize i
 	}
 }
 
-// RemovePeer удаляет все записи о пире из каталога.
-// Возвращает список fileID, которые были затронуты (для оповещения).
+// RemovePeer удаляет все записи о пире. Возвращает список затронутых fileID.
 func (c *Catalog) RemovePeer(peerID string) []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -71,7 +63,6 @@ func (c *Catalog) RemovePeer(peerID string) []string {
 			delete(entry.Owners, peerID)
 			affectedFiles = append(affectedFiles, fileID)
 		}
-		// Если у файла больше нет владельцев — удаляем запись целиком
 		if len(entry.Owners) == 0 {
 			delete(c.entries, fileID)
 		}
@@ -79,21 +70,20 @@ func (c *Catalog) RemovePeer(peerID string) []string {
 	return affectedFiles
 }
 
-// GetEntries возвращает копию всех записей каталога для отправки пиру.
-func (c *Catalog) GetEntries() []protocol.CatalogEntry {
+// GetEntries возвращает копию всех записей каталога.
+func (c *Catalog) GetEntries() []types.CatalogEntry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	result := make([]protocol.CatalogEntry, 0, len(c.entries))
+	result := make([]types.CatalogEntry, 0, len(c.entries))
 	for _, entry := range c.entries {
-		// Создаём глубокую копию
 		ownersCopy := make(map[string][]uint32, len(entry.Owners))
 		for peerID, chunks := range entry.Owners {
 			chunksCopy := make([]uint32, len(chunks))
 			copy(chunksCopy, chunks)
 			ownersCopy[peerID] = chunksCopy
 		}
-		result = append(result, protocol.CatalogEntry{
+		result = append(result, types.CatalogEntry{
 			FileID:      entry.FileID,
 			FileName:    entry.FileName,
 			FileSize:    entry.FileSize,
@@ -104,8 +94,8 @@ func (c *Catalog) GetEntries() []protocol.CatalogEntry {
 	return result
 }
 
-// GetEntry возвращает копию записи о конкретном файле (или nil).
-func (c *Catalog) GetEntry(fileID string) *protocol.CatalogEntry {
+// GetEntry возвращает копию записи о файле (или nil).
+func (c *Catalog) GetEntry(fileID string) *types.CatalogEntry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -114,14 +104,13 @@ func (c *Catalog) GetEntry(fileID string) *protocol.CatalogEntry {
 		return nil
 	}
 
-	// Глубокая копия
 	ownersCopy := make(map[string][]uint32, len(entry.Owners))
 	for peerID, chunks := range entry.Owners {
 		chunksCopy := make([]uint32, len(chunks))
 		copy(chunksCopy, chunks)
 		ownersCopy[peerID] = chunksCopy
 	}
-	return &protocol.CatalogEntry{
+	return &types.CatalogEntry{
 		FileID:      entry.FileID,
 		FileName:    entry.FileName,
 		FileSize:    entry.FileSize,
@@ -131,8 +120,7 @@ func (c *Catalog) GetEntry(fileID string) *protocol.CatalogEntry {
 }
 
 // Merge объединяет полученный от пира каталог с нашим.
-// entries, у которых нет владельцев, не добавляются.
-func (c *Catalog) Merge(entries []protocol.CatalogEntry) {
+func (c *Catalog) Merge(entries []types.CatalogEntry) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -143,14 +131,13 @@ func (c *Catalog) Merge(entries []protocol.CatalogEntry) {
 
 		existing, exists := c.entries[entry.FileID]
 		if !exists {
-			// Новая запись — копируем целиком
 			ownersCopy := make(map[string][]uint32, len(entry.Owners))
 			for peerID, chunks := range entry.Owners {
 				chunksCopy := make([]uint32, len(chunks))
 				copy(chunksCopy, chunks)
 				ownersCopy[peerID] = chunksCopy
 			}
-			c.entries[entry.FileID] = &protocol.CatalogEntry{
+			c.entries[entry.FileID] = &types.CatalogEntry{
 				FileID:      entry.FileID,
 				FileName:    entry.FileName,
 				FileSize:    entry.FileSize,
@@ -158,12 +145,10 @@ func (c *Catalog) Merge(entries []protocol.CatalogEntry) {
 				Owners:      ownersCopy,
 			}
 		} else {
-			// Обновляем метаданные
 			existing.FileName = entry.FileName
 			existing.FileSize = entry.FileSize
 			existing.TotalChunks = entry.TotalChunks
 
-			// Добавляем/обновляем владельцев
 			for peerID, chunks := range entry.Owners {
 				chunksCopy := make([]uint32, len(chunks))
 				copy(chunksCopy, chunks)

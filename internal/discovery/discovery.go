@@ -9,27 +9,23 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"mesh-cu/internal/types"
 )
 
 const (
 	DiscoveryPort = 9999
 	DiscoveryMsg  = "CU-BRIDGE-HELLO"
-	// Для совместимости с Windows используем broadcast адрес
 	BroadcastIPv4 = "255.255.255.255"
 )
 
-type Peer struct {
-	ID   string
-	IP   string
-	Port int
-	Name string
-}
-
+// DiscoveryService — UDP-обнаружение пиров в локальной сети.
 type DiscoveryService struct {
 	Name string
-	Port int // Порт для TCP соединений (файлы/чат)
+	Port int
 }
 
+// NewDiscoveryService создаёт сервис обнаружения.
 func NewDiscoveryService(name string, port int) *DiscoveryService {
 	return &DiscoveryService{
 		Name: name,
@@ -37,12 +33,13 @@ func NewDiscoveryService(name string, port int) *DiscoveryService {
 	}
 }
 
-// UpdateName позволяет изменить имя узла после запуска (например, при коллизии имён).
+// UpdateName изменяет имя узла (при коллизии имён).
 func (s *DiscoveryService) UpdateName(name string) {
 	s.Name = name
 }
 
-func (s *DiscoveryService) Start(ctx context.Context, peerChan chan<- Peer) {
+// Start запускает broadcast и listen в фоне.
+func (s *DiscoveryService) Start(ctx context.Context, peerChan chan<- types.Peer) {
 	go s.listen(ctx, peerChan)
 	go s.broadcast(ctx)
 
@@ -51,7 +48,6 @@ func (s *DiscoveryService) Start(ctx context.Context, peerChan chan<- Peer) {
 }
 
 func (s *DiscoveryService) broadcast(ctx context.Context) {
-	// Используем Broadcast вместо Multicast для лучшей совместимости с Windows
 	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", BroadcastIPv4, DiscoveryPort))
 	if err != nil {
 		log.Printf("[Broadcast Error] Failed to resolve address: %v", err)
@@ -83,16 +79,11 @@ func (s *DiscoveryService) broadcast(ctx context.Context) {
 	}
 }
 
-func (s *DiscoveryService) listen(ctx context.Context, peerChan chan<- Peer) {
-	// Используем ListenConfig с Control функцией, чтобы установить SO_REUSEADDR
-	// на сыром сокете ДО вызова bind(). Это работает на Windows и позволяет
-	// нескольким процессам слушать один UDP порт 9999 одновременно.
+func (s *DiscoveryService) listen(ctx context.Context, peerChan chan<- types.Peer) {
 	lc := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
 			return c.Control(func(fd uintptr) {
-				// SO_REUSEADDR = 2 (0x0004) на Windows — разрешаем переиспользование порта
 				syscall.SetsockoptInt(syscall.Handle(fd), syscall.SOL_SOCKET, 0x0004, 1)
-				// SO_BROADCAST = 1 (0x0020) — разрешаем broadcast на сокете
 				syscall.SetsockoptInt(syscall.Handle(fd), syscall.SOL_SOCKET, 0x0020, 1)
 			})
 		},
@@ -106,11 +97,8 @@ func (s *DiscoveryService) listen(ctx context.Context, peerChan chan<- Peer) {
 	}
 	defer pc.Close()
 
-	// Приводим net.PacketConn к *net.UDPConn для ReadFromUDP
 	conn := pc.(*net.UDPConn)
 
-	// Получаем список своих IP-адресов, чтобы отфильтровать собственные broadcast-сообщения
-	// (они приходят с реального IP, а не с 127.0.0.1)
 	localIPs := make(map[string]bool)
 	addrs, err := net.InterfaceAddrs()
 	if err == nil {
@@ -146,18 +134,14 @@ func (s *DiscoveryService) listen(ctx context.Context, peerChan chan<- Peer) {
 					continue
 				}
 
-				// Фильтруем только себя: если IP наш (любой локальный интерфейс)
-				// и Port совпадает с нашим TCP портом — это наше собственное
-				// broadcast-сообщение, пропускаем.
-				// По имени НЕ фильтруем, чтобы ноды с одинаковым именем видели друг друга.
 				if localIPs[remoteAddr.IP.String()] && peerPort == s.Port {
 					continue
 				}
 
-				peerChan <- Peer{
+				peerChan <- types.Peer{
 					ID:   peerName,
-					IP:   remoteAddr.IP.String(), // IP адрес соседа
-					Port: peerPort,               // TCP порт соседа для передачи файлов
+					IP:   remoteAddr.IP.String(),
+					Port: peerPort,
 					Name: peerName,
 				}
 			}

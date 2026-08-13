@@ -169,7 +169,6 @@ CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -ldflags="-s -w" -o landrop ./c
 ```
 
 > **CI builds:** prebuilt binaries for macOS, Linux and Windows are produced automatically by the [GitHub Actions release workflow](.github/workflows/release.yml) when a version tag (e.g. `v0.1.0`) is pushed.
-```
 
 > See [`CONTRIBUTING`](.github/CONTRIBUTING.md) — coming soon. Issues and feature requests are tracked via [GitHub Issues](https://github.com/your-org/landrop/issues).
 

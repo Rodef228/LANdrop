@@ -1,3 +1,3 @@
-module mesh-cu
+module landrop
 
 go 1.25.0

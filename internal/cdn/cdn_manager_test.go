@@ -3,8 +3,8 @@ package cdn
 import (
 	"testing"
 
-	"mesh-cu/internal/helpers"
-	"mesh-cu/internal/types"
+	"landrop/internal/helpers"
+	"landrop/internal/types"
 )
 
 func newMockCDNManager(t *testing.T, nodeID string) *CDNManager {

@@ -3,7 +3,7 @@ package catalog
 import (
 	"testing"
 
-	"mesh-cu/internal/types"
+	"landrop/internal/types"
 )
 
 func TestNewCatalog(t *testing.T) {

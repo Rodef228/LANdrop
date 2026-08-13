@@ -3,8 +3,8 @@ package cdn
 import (
 	"sync"
 
-	"mesh-cu/internal/helpers"
-	"mesh-cu/internal/types"
+	"landrop/internal/helpers"
+	"landrop/internal/types"
 )
 
 // CDNManager — управляет файлами: регистрация, анонсы, отслеживание владельцев чанков.

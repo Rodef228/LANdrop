@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"mesh-cu/internal/types"
+	"landrop/internal/types"
 )
 
 // Encode упаковывает заголовок и полезную нагрузку в JSON.

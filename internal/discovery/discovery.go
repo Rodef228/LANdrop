@@ -10,12 +10,12 @@ import (
 	"syscall"
 	"time"
 
-	"mesh-cu/internal/types"
+	"landrop/internal/types"
 )
 
 const (
 	DiscoveryPort = 9999
-	DiscoveryMsg  = "CU-BRIDGE-HELLO"
+	DiscoveryMsg  = "LANDROP-HELLO"
 	BroadcastIPv4 = "255.255.255.255"
 )
 
@@ -83,8 +83,7 @@ func (s *DiscoveryService) listen(ctx context.Context, peerChan chan<- types.Pee
 	lc := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
 			return c.Control(func(fd uintptr) {
-				syscall.SetsockoptInt(syscall.Handle(fd), syscall.SOL_SOCKET, 0x0004, 1)
-				syscall.SetsockoptInt(syscall.Handle(fd), syscall.SOL_SOCKET, 0x0020, 1)
+				setSocketOptions(fd)
 			})
 		},
 	}

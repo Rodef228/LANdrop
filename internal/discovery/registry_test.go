@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"mesh-cu/internal/types"
+	"landrop/internal/types"
 )
 
 func TestPeerRegistry(t *testing.T) {

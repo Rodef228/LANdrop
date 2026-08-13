@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"mesh-cu/internal/types"
+	"landrop/internal/types"
 )
 
 // PeerRegistry хранит список активных узлов в сети.

@@ -8,8 +8,8 @@ import (
 	"net"
 	"time"
 
-	"mesh-cu/internal/helpers"
-	"mesh-cu/internal/types"
+	"landrop/internal/helpers"
+	"landrop/internal/types"
 )
 
 // Server — TCP-сервер для приёма сообщений от пиров.

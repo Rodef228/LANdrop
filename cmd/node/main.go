@@ -16,12 +16,12 @@ import (
 	"syscall"
 	"time"
 
-	"mesh-cu/internal/catalog"
-	"mesh-cu/internal/cdn"
-	"mesh-cu/internal/discovery"
-	"mesh-cu/internal/helpers"
-	"mesh-cu/internal/network"
-	"mesh-cu/internal/types"
+	"landrop/internal/catalog"
+	"landrop/internal/cdn"
+	"landrop/internal/discovery"
+	"landrop/internal/helpers"
+	"landrop/internal/network"
+	"landrop/internal/types"
 )
 
 func main() {
@@ -67,7 +67,7 @@ func main() {
 	registry := discovery.NewPeerRegistry()
 	fileCatalog := catalog.NewCatalog()
 
-	fmt.Printf("Добро пожаловать в Mesh-CU Messenger, %s!\n", *name)
+	fmt.Printf("Добро пожаловать в LANdrop, %s!\n", *name)
 	fmt.Println("Ожидание пиров и сообщений...")
 	fmt.Println("-----------------------------------------")
 

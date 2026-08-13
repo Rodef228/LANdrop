@@ -1,45 +1,49 @@
-# Binaries for programs and plugins
-*.exe
-*.dll
-*.so
-*.dylib
+# --- Build artifacts / binaries ---
+# LANdrop binary (all platforms)
+landrop
+landrop.exe
+landrop-*
+landrop_*
 
-*.mod
-*.sum
-*.mp4
-
-# Test binary, built with `go test -c`
-*.test
-
-# Output of the go toolchain
-*.out
-
-# Dependency directories (remove the "vendor/" if you want to commit it)
-vendor/
-
-# Go module cache
-.mod/
-
-# IDE specific files
-.vscode/
-.idea/
-
-# Log files
-*.log
-
-# macOS specific files
-.DS_Store
-
-# Windows specific files
-thumbs.db
-
-# исполняемые файлы
+# Legacy binary names (kept so old builds stay ignored)
 mesh_node
+mesh_node.exe
+mesh_macos_amd64
+mesh_macos_arm64
+cu_mesh_ubuntu
+mesh_android
+mesh_win.exe
 cu-bridge
 cu-bridge.exe
 cu-bridge-linux
 cu-bridge-mac
-cu_mesh_ubuntu
-mesh_android
 builds/
+dist/
+
+# --- Go ---
+*.mod
+*.sum
+*.test
+*.out
+vendor/
+.mod/
+
+# --- IDE / editor ---
+.vscode/
+.idea/
+*.swp
+
+# --- Logs ---
+*.log
+
+# --- OS files ---
+.DS_Store
+thumbs.db
+Desktop.ini
+
+# --- Environment / secrets ---
+.env
+.env.*
+
+# --- Local data / runtime ---
 storage/

@@ -3,7 +3,7 @@ package catalog
 import (
 	"sync"
 
-	"mesh-cu/internal/types"
+	"landrop/internal/types"
 )
 
 // Catalog — распределённый in-memory каталог файлов.

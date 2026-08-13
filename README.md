@@ -120,14 +120,14 @@ Environment variables `NODE_NAME`, `NODE_PORT`, and `NODE_STORAGE` are also supp
 sequenceDiagram
     participant A as Node Alice
     participant B as Node Bob
-    Note over A,B: UDP broadcast (every 2s) on port 9999
-    A-->>B: LANDROP-HELLO:alice:port
-    A->>B: TCP connect + send catalog
-    A->>B: "hi bob 👋" (TypeChat over TCP)
-    A->>B: /announce file → TypeFileAnnounce
-    B->>A: TypeFileRequest(chunk 0..7)
-    A->>B: TypeFileChunk(data) — parallel
-    Note over A,B: Catalog re-synced; Bob now an owner
+    Note over A,B: UDP broadcast every 2s on port 9999
+    A-->>B: LANDROP-HELLO with name and TCP port
+    A->>B: TCP connect and send catalog
+    A->>B: chat message (TypeChat)
+    A->>B: announce file (TypeFileAnnounce)
+    B->>A: request chunk (TypeFileRequest)
+    A->>B: send chunk data (TypeFileChunk)
+    Note over A,B: Catalog re-synced, Bob becomes an owner
 ```
 
 1. **Discovery** — each node sends a UDP broadcast (`LANDROP-HELLO:{name}:{tcp_port}`) every 2 seconds on port `9999`. `SO_REUSEADDR` lets multiple nodes run on one machine.

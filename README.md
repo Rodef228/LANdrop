@@ -51,7 +51,7 @@ Sharing large files between devices on the same network is painful:
 ### Build from source
 
 ```bash
-git clone https://github.com/your-org/landrop.git
+git clone https://github.com/Rodef228/landrop.git
 cd landrop
 
 # macOS / Linux
